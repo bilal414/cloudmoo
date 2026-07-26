@@ -1,0 +1,46 @@
+{% extends "_master.html" %}
+{% block title %}App-Based Two-Factor Authentication{% endblock %}
+{% block content %}
+    <!-- Header Section -->
+    <div class="sm:flex sm:items-center mb-6">
+        <div class="sm:flex-auto">
+            <h1 class="text-2xl font-light leading-6">Security - Two-Factor Authentication</h1>
+            <p class="mt-2 text-sm text-gray-700">
+                You can use enable two-factor authentication for your account using authenticator application.
+            </p>
+        </div>
+    </div>
+    <div class="bg-white shadow sm:rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+            {% if has_totp and in_app_2fa_group %}
+                <h3 class="text-lg leading-6 font-medium text-gray-900">
+                    App-Based Two-Factor Authentication is Enabled
+                </h3>
+                <div class="mt-2 max-w-xl text-sm text-gray-500">
+                    <p>Your account is protected with app-based two-factor authentication.</p>
+                </div>
+                <div class="mt-5">
+                    <a href="{% url 'console:security:disable_app_two_factor' %}"
+                       class="inline-flex items-center justify-center px-4 py-2 border border-transparent font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:text-sm">
+                        Disable App-Based 2FA
+                    </a>
+                </div>
+            {% else %}
+                <h3 class="text-lg leading-6 font-medium text-gray-900">
+                    Enable App-Based Two-Factor Authentication
+                </h3>
+                <div class="mt-2 max-w-xl text-sm text-gray-500">
+                    <p>Protect your account with app-based two-factor authentication using Google
+                        Authenticator.</p>
+                </div>
+                <div class="mt-5">
+                    <a href="{% url 'console:security:setup_app_two_factor' %}"
+                       class="inline-flex items-center justify-center px-4 py-2 border border-transparent font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
+                        Set Up App-Based 2FA
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+{% endblock %}

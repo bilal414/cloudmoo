@@ -1,0 +1,139 @@
+<nav class="flex flex-1 flex-col">
+    <ul role="list" class="flex flex-1 flex-col gap-y-7">
+        <li>
+            <ul role="list" class="-mx-2 space-y-1">
+                <li>
+                    <a href="{% url 'console:home:index' %}"
+                       class="{% if active_url == 'dashboard' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 ">
+                        <svg class="size-6 {% if active_url == 'dashboard' %}text-indigo-600{% else %}text-gray-400{% endif %}"
+                             fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"></path>
+                        </svg>
+                        Dashboard
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:asset:list' %}"
+                       class="{% if active_url == 'assets' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 ">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'assets' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"></path>
+                        </svg>
+                        Assets
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:cloud:list' %}"
+                       class="{% if active_url == 'clouds' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 ">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'clouds' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z"></path>
+                        </svg>
+                        Clouds
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:cloud:connect' %}"
+                       class="{% if active_url == 'connect' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 ">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'connect' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"></path>
+                        </svg>
+                        Connect
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:notifications:index' %}"
+                       class="{% if active_url == 'notifications' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 ">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'notifications' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"></path>
+                        </svg>
+                        Notifications
+                    </a>
+                </li>
+            </ul>
+        </li>
+        <li>
+            <div class="text-sm font-light text-azure-200">Security</div>
+            <ul role="list" class="-mx-2 mt-2 space-y-1 text-sm">
+                <li>
+                    <a href="{% url 'console:security:password_change' %}"
+                       class="{% if active_url == 'security_password' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm/6 font-light">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'security_password' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"></path>
+                        </svg>
+
+                        <span class="truncate">Password</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:security:app_two_factor' %}"
+                       class="{% if active_url == 'security_2fa' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm/6 font-light">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'security_2fa' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"></path>
+                        </svg>
+                        <span class="truncate">Two-Factor</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'console:security:profile' %}"
+                       class="{% if active_url == 'security_profile' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:text-indigo-600 hover:bg-gray-50{% endif %} group flex gap-x-3 rounded-md p-2 text-sm/6 font-light">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor"
+                             class="size-6 {% if active_url == 'security_profile' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"></path>
+                        </svg>
+                        <span class="truncate">Profile</span>
+                    </a>
+                </li>
+            </ul>
+        </li>
+        <li class="mt-auto">
+            <a
+                    class="group -mx-2 flex gap-x-3 rounded-md p-2 text-sm font-light leading-6 text-gray-700 hover:bg-gray-50 hover:text-azure-600">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                     stroke-width="1.5"
+                     stroke="currentColor"
+                     class="h-6 w-6 shrink-0 {% if active_url == "timezone" %}text-azure-600{% else %}text-gray-400{% endif %}">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15m-3 0-3-3m0 0 3-3m-3 3H15"></path>
+                </svg>
+
+                {% if request.user.is_hijacked %}
+                    <form action="{% url 'hijack:release' %}" method="POST" class="djhj-actions">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="/console">
+                        <button type="submit" class="">
+                            Sign out
+                        </button>
+                    </form>
+                {% else %}
+                    <form id="logout-form" method="post" action="{% url 'console:logout' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="">
+                            Sign out
+                        </button>
+                    </form>
+                {% endif %}
+            </a>
+        </li>
+    </ul>
+</nav>

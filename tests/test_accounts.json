@@ -1,0 +1,293 @@
+{
+  "test_accounts": {
+    "digitalocean": {
+      "valid": {
+        "name": "Test DigitalOcean Account",
+        "access_token": "dop_v1_your_test_token_here",
+        "description": "Valid DigitalOcean API token for testing"
+      },
+      "invalid": {
+        "name": "Invalid DigitalOcean Account", 
+        "access_token": "invalid_token_123",
+        "description": "Invalid token for negative testing"
+      },
+      "expired": {
+        "name": "Expired DigitalOcean Account",
+        "access_token": "expired_token_456",
+        "description": "Expired token for testing token expiry scenarios"
+      }
+    },
+    "aws": {
+      "valid": {
+        "name": "Test AWS Account",
+        "access_key": "AKIAIOSFODNN7EXAMPLE",
+        "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "region": "us-east-1",
+        "description": "Valid AWS credentials for testing (example keys)"
+      },
+      "invalid": {
+        "name": "Invalid AWS Account",
+        "access_key": "AKIAINVALIDKEY123",
+        "secret_key": "invalid_secret_key_example",
+        "region": "us-east-1",
+        "description": "Invalid AWS credentials for negative testing"
+      },
+      "invalid_region": {
+        "name": "AWS Account Invalid Region",
+        "access_key": "AKIAIOSFODNN7EXAMPLE",
+        "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "region": "invalid-region-1",
+        "description": "Valid credentials with invalid region"
+      }
+    },
+    "vultr": {
+      "valid": {
+        "name": "Test Vultr Account",
+        "access_token": "VULTR_API_KEY_EXAMPLE_12345",
+        "description": "Valid Vultr API token for testing"
+      },
+      "invalid": {
+        "name": "Invalid Vultr Account",
+        "access_token": "invalid_vultr_token",
+        "description": "Invalid Vultr API token for negative testing"
+      },
+      "rate_limited": {
+        "name": "Rate Limited Vultr Account",
+        "access_token": "rate_limited_token",
+        "description": "Token that triggers rate limiting for testing"
+      }
+    },
+    "hetzner": {
+      "valid": {
+        "name": "Test Hetzner Account",
+        "access_token": "hetzner_test_token_example_123",
+        "description": "Valid Hetzner Cloud API token for testing"
+      },
+      "invalid": {
+        "name": "Invalid Hetzner Account",
+        "access_token": "invalid_hetzner_token",
+        "description": "Invalid Hetzner API token for negative testing"
+      },
+      "restricted": {
+        "name": "Restricted Hetzner Account",
+        "access_token": "restricted_access_token",
+        "description": "Token with restricted permissions for testing"
+      }
+    },
+    "linode": {
+      "valid": {
+        "name": "Test Linode Account",
+        "access_token": "linode_personal_access_token_example",
+        "description": "Valid Linode Personal Access Token for testing"
+      },
+      "invalid": {
+        "name": "Invalid Linode Account",
+        "access_token": "invalid_linode_token",
+        "description": "Invalid Linode token for negative testing"
+      },
+      "suspended": {
+        "name": "Suspended Linode Account",
+        "access_token": "suspended_account_token",
+        "description": "Token for suspended account testing"
+      }
+    },
+    "upcloud": {
+      "valid": {
+        "name": "Test UpCloud Account",
+        "username": "test_upcloud_user",
+        "password": "test_upcloud_password",
+        "description": "Valid UpCloud credentials for testing"
+      },
+      "invalid": {
+        "name": "Invalid UpCloud Account",
+        "username": "invalid_user",
+        "password": "invalid_password",
+        "description": "Invalid UpCloud credentials for negative testing"
+      },
+      "suspended": {
+        "name": "Suspended UpCloud Account",
+        "username": "suspended_user",
+        "password": "suspended_password",
+        "description": "Suspended account credentials for testing"
+      }
+    }
+  },
+  "test_settings": {
+    "use_real_api": false,
+    "mock_responses": true,
+    "timeout": 30,
+    "retry_attempts": 3,
+    "description": "Global test configuration settings"
+  },
+  "mock_responses": {
+    "digitalocean": {
+      "account_success": {
+        "status_code": 200,
+        "response": {
+          "account": {
+            "droplet_limit": 25,
+            "floating_ip_limit": 3,
+            "email": "test@example.com",
+            "uuid": "test-uuid-123",
+            "email_verified": true,
+            "status": "active",
+            "status_message": ""
+          }
+        }
+      },
+      "account_unauthorized": {
+        "status_code": 401,
+        "response": {
+          "id": "unauthorized",
+          "message": "Unable to authenticate you."
+        }
+      }
+    },
+    "aws": {
+      "describe_instances_success": {
+        "status_code": 200,
+        "response": {
+          "Reservations": []
+        }
+      },
+      "invalid_credentials": {
+        "error": "InvalidUserID.NotFound",
+        "message": "The user ID does not exist"
+      }
+    },
+    "vultr": {
+      "account_success": {
+        "status_code": 200,
+        "response": {
+          "account": {
+            "name": "Test Account",
+            "email": "test@example.com",
+            "balance": 100.50,
+            "pending_charges": 10.25,
+            "last_payment_date": "2023-01-15",
+            "last_payment_amount": 50.00
+          }
+        }
+      },
+      "account_unauthorized": {
+        "status_code": 401,
+        "response": {
+          "error": "Invalid or expired API token"
+        }
+      },
+      "account_rate_limited": {
+        "status_code": 429,
+        "response": {
+          "error": "API rate limit exceeded"
+        }
+      }
+    },
+    "hetzner": {
+      "servers_success": {
+        "status_code": 200,
+        "response": {
+          "servers": [
+            {
+              "id": 4711,
+              "name": "Web Frontend",
+              "status": "running",
+              "public_net": {
+                "ipv4": {
+                  "ip": "1.2.3.4",
+                  "blocked": false
+                }
+              },
+              "server_type": {
+                "id": 1,
+                "name": "cx11",
+                "description": "CX11",
+                "cores": 1,
+                "memory": 1
+              },
+              "datacenter": {
+                "id": 1,
+                "name": "fsn1-dc8"
+              }
+            }
+          ]
+        }
+      },
+      "servers_unauthorized": {
+        "status_code": 401,
+        "response": {
+          "error": {
+            "code": "unauthorized",
+            "message": "Invalid token"
+          }
+        }
+      }
+    },
+    "linode": {
+      "account_success": {
+        "status_code": 200,
+        "response": {
+          "company": "Example Company",
+          "email": "test@example.com",
+          "first_name": "John",
+          "last_name": "Smith",
+          "address_1": "123 Main Street",
+          "city": "Philadelphia",
+          "state": "PA",
+          "zip": "19102",
+          "country": "US",
+          "phone": "+1 215-555-0100",
+          "balance": 200,
+          "balance_uninvoiced": 145,
+          "capabilities": [
+            "Linodes",
+            "NodeBalancers",
+            "Block Storage",
+            "Object Storage"
+          ],
+          "active_since": "2018-01-01T00:01:01"
+        }
+      },
+      "account_unauthorized": {
+        "status_code": 401,
+        "response": {
+          "errors": [
+            {
+              "field": "authentication",
+              "reason": "Invalid token"
+            }
+          ]
+        }
+      }
+    },
+    "upcloud": {
+      "account_success": {
+        "status_code": 200,
+        "response": {
+          "account": {
+            "username": "testuser",
+            "credits": 9972.2324,
+            "resource_limits": {
+              "cores": 200,
+              "detached_floating_ips": 10,
+              "memory": 262144,
+              "networks": 25,
+              "public_ipv4": 25,
+              "public_ipv6": 25,
+              "storage_hdd": 10240,
+              "storage_ssd": 10240
+            }
+          }
+        }
+      },
+      "account_unauthorized": {
+        "status_code": 401,
+        "response": {
+          "error": {
+            "error_code": "AUTHENTICATION_FAILED",
+            "error_message": "Authentication failed using the given username and password."
+          }
+        }
+      }
+    }
+  }
+}

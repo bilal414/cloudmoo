@@ -1,0 +1,95 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "EC2ReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeVolumes", 
+                "ec2:DescribeSnapshots",
+                "ec2:DescribeAddresses",
+                "ec2:DescribeSecurityGroups"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "RDSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "rds:DescribeDBInstances"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "LambdaReadOnlyAccess", 
+            "Effect": "Allow",
+            "Action": [
+                "lambda:ListFunctions",
+                "lambda:GetFunction"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DynamoDBReadOnlyAccess",
+            "Effect": "Allow", 
+            "Action": [
+                "dynamodb:ListTables",
+                "dynamodb:DescribeTable"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "S3ReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketLocation",
+                "s3:GetBucketVersioning", 
+                "s3:GetEncryptionConfiguration",
+                "s3:GetBucketPublicAccessBlock"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ACMReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "acm:ListCertificates",
+                "acm:DescribeCertificate"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ELBReadOnlyAccess",
+            "Effect": "Allow", 
+            "Action": [
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeInstanceHealth"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecs:ListClusters",
+                "ecs:ListServices", 
+                "ecs:DescribeServices",
+                "ecs:ListTasks",
+                "ecs:DescribeTasks"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "STSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "sts:GetCallerIdentity"
+            ],
+            "Resource": "*"
+        }
+    ]
+} 

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full scroll-smooth bg-white antialiased">
+<head>
+    <title>CloudMoo - {% block title %}{% endblock %}</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="author" content="{% block author %}CloudMoo{% endblock %}">
+    <!-- Fonts -->
+    <link rel="shortcuticon" href="{{ STATIC_URL }}console/images/favicon.png" type="image/x-icon">
+    <link rel="icon" href="{{ STATIC_URL }}console/images/favicon.png" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet">
+    <link type="text/css" href="{{ STATIC_URL }}console/css/compiled.css?v=1.5" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/flowbite@1.5.2/dist/flowbite.min.css"/>
+    {% if recaptcha_enabled %}
+        <script src="https://www.google.com/recaptcha/api.js?render={{ recaptcha_site_key }}"></script>
+    {% endif %}
+
+</head>
+<body class="{% block page_class %}{% endblock %} flex h-full flex-col lexend-font">
+{% block content %}{% endblock %}
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+{% include "_notifications.html" %}
+{% include "_loading.html" %}
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,279 @@
+{% extends "_master.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block meta_title %}{{ heading }}{% endblock %}
+{% block meta_description %}{{ heading }}{% endblock %}
+{% block meta_keywords %}{{ heading }}{% endblock %}
+{% block page_class %}page_console console-page sb-l-o sb-r-c{% endblock %}
+{% block heading %}false{% endblock %}
+{% load humanize %}
+{% load tz %}
+
+{% block content %}
+    <div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-xl w-full space-y-8">
+            <div>
+                <h2 class="mt-6 text-center text-3xl font-light ">
+                    Connect Your Linode Account
+                </h2>
+                <p class="mt-2 text-center text-sm text-gray-600">
+                    Enter your Linode API token to connect your account and sync your servers and volumes.
+                </p>
+            </div>
+            <form class="mt-8 space-y-6" method="POST">
+                {% csrf_token %}
+                <div class="rounded-md shadow-sm -space-y-px">
+                    <div class="mb-4">
+                        <label for="{{ form.account_name.id_for_label }}"
+                               class="block text-sm  text-gray-700">
+                            Account Name
+                        </label>
+                        <div class="mt-1">
+                            {{ form.account_name }}
+                        </div>
+                        {% if form.account_name.help_text %}
+                            <p class="mt-2 text-sm ">{{ form.account_name.help_text }}</p>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label for="{{ form.access_token.id_for_label }}"
+                               class="block text-sm  text-gray-700">
+                            API Token
+                        </label>
+                        <div class="mt-1">
+                            {{ form.access_token }}
+                        </div>
+                        {% if form.access_token.help_text %}
+                            <p class="mt-2 text-sm ">{{ form.access_token.help_text }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if form.access_token.errors %}
+                    <div class="rounded-md bg-red-50 p-4">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                                     fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd"
+                                          d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                          clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-sm  text-red-800">
+                                    There was an error with your submission
+                                </h3>
+                                <div class="mt-2 text-sm text-red-700">
+                                    <ul role="list" class="list-disc pl-5 space-y-1">
+                                        <li>{{ form.access_token.errors.0 }}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="rounded-md {% if message.tags == "error" %} bg-red-50 {% else %}bg-green-50{% endif %} p-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg"
+                                         viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                              clip-rule="evenodd"></path>
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <p class="text-sm  {% if message.tags == "error" %} text-red-800 {% else %}text-green-400{% endif %}">
+                                        {{ message }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <div>
+                    <button id="connect-button" type="submit"
+                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        <span class="absolute left-0 inset-y-0 flex items-center pl-3">
+                            <!-- Lock icon for normal state -->
+                            <span id="button-icon">
+                                <svg class="h-5 w-5 text-indigo-500 group-hover:text-indigo-400"
+                                     xmlns="http://www.w3.org/2000/svg"
+                                     viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd"
+                                          d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                          clip-rule="evenodd"></path>
+                                </svg>
+                            </span>
+                        </span>
+                        <!-- Normal state -->
+                        <span id="button-text" class="inline-flex items-center">
+                            Connect Account
+                        </span>
+                        <!-- Loading state -->
+                        <span id="button-loading-text" class="hidden inline-flex items-center">
+                            <svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg"
+                                 fill="none"
+                                 viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Connecting...
+                        </span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Setup Guide Section -->
+            <div class="mt-8 border border-gray-200 rounded-lg bg-white">
+                <div class="px-4 py-5 sm:p-6">
+                    <h3 class="text-lg font-medium leading-6 text-gray-900">
+                        Setup Guide
+                    </h3>
+                    <div class="mt-4 text-sm text-gray-600">
+                        <p class="mb-4">Follow these steps to create your Linode API token:</p>
+
+                        <div class="space-y-4">
+                            <!-- Step 1 -->
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100">
+                                        <span class="text-sm font-medium text-indigo-600">1</span>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="font-medium text-gray-900">Go to API Tokens page</p>
+                                    <p class="mt-1 text-gray-600">Navigate to the <a
+                                            href="https://cloud.linode.com/profile/tokens" target="_blank"
+                                            class="text-indigo-600 hover:text-indigo-800">Linode API Tokens</a> section in your profile.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Step 2 -->
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100">
+                                        <span class="text-sm font-medium text-indigo-600">2</span>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="font-medium text-gray-900">Create a new token</p>
+                                    <p class="mt-1 text-gray-600">Click the "Create a Personal Access Token" button</p>
+                                </div>
+                            </div>
+
+                            <!-- Step 3 -->
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100">
+                                        <span class="text-sm font-medium text-indigo-600">3</span>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="font-medium text-gray-900">Configure token settings</p>
+                                    <p class="mt-1 text-gray-600">Set a label (e.g., "CloudMoo") and an expiration date (or "Never" for no expiration)</p>
+                                    <div class="mt-2 bg-gray-50 rounded-md p-4">
+                                        <div class="text-sm font-medium text-gray-700">Required permissions:</div>
+                                        <ul class="mt-2 list-disc pl-5 text-gray-600">
+                                            <li>Linodes - Read Only</li>
+                                            <li>Volumes - Read Only</li>
+                                            <li>Account - Read Only</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 4 -->
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100">
+                                        <span class="text-sm font-medium text-indigo-600">4</span>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <p class="font-medium text-gray-900">Create and save your token</p>
+                                    <p class="mt-1 text-gray-600">Click "Create Token" and copy your new API token - it will only be shown once</p>
+                                </div>
+                            </div>
+
+                            <!-- Warning Note -->
+                            <div class="mt-4 rounded-md bg-yellow-50 p-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg"
+                                             viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd"
+                                                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                                  clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <p class="text-sm text-yellow-700">
+                                            Make sure to save your token immediately. For security reasons, you won't be
+                                            able to view it again after leaving the page.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+
+{% block extra_scripts %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Get references to all the required DOM elements
+            const form = document.querySelector('.space-y-6');
+            const button = document.getElementById('connect-button');
+            const buttonIcon = document.getElementById('button-icon');
+            const buttonText = document.getElementById('button-text');
+            const buttonLoadingText = document.getElementById('button-loading-text');
+
+            if (form && button) {  // Check if elements exist
+                // Function to toggle loading state
+                function setLoading(isLoading) {
+                    button.disabled = isLoading;
+                    if (isLoading) {
+                        buttonIcon.classList.add('hidden');
+                        buttonText.classList.add('hidden');
+                        buttonLoadingText.classList.remove('hidden');
+                    } else {
+                        buttonIcon.classList.remove('hidden');
+                        buttonText.classList.remove('hidden');
+                        buttonLoadingText.classList.add('hidden');
+                    }
+                }
+
+                // Handle form submission
+                form.addEventListener('submit', function (e) {
+                    // Prevent double submission
+                    if (button.disabled) {
+                        e.preventDefault();
+                        return;
+                    }
+                    setLoading(true);
+                });
+
+                // Reset loading state if user navigates back
+                window.addEventListener('pageshow', function (event) {
+                    if (event.persisted) {
+                        setLoading(false);
+                    }
+                });
+            }
+        });
+    </script>
+{% endblock %}

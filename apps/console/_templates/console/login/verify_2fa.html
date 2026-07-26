@@ -1,0 +1,84 @@
+{% extends "_master_auth.html" %}
+{% block title %}Verify Two-Factor Authentication{{% endblock %}
+{% block og_title %}Verify Two-Factor Authentication{{% endblock %}
+{% block page_class %}page_verify{% endblock %}
+{% load custom_filters %}
+
+{% block content %}
+    <div class="relative flex min-h-full shrink-0 justify-center md:px-12 lg:px-0">
+        <div class="relative z-10 flex flex-1 flex-col bg-white px-4 py-10 shadow-2xl sm:justify-center md:flex-none md:px-28">
+            <main class="mx-auto w-full max-w-md sm:px-4 md:w-96 md:max-w-sm md:px-0">
+                <div class="flex">
+                    <a aria-label="Home" href="/">
+                        <img class="w-auto h-14" src="{{ STATIC_URL }}console/images/logo.svg" alt="CloudMoo"/>
+                    </a>
+                </div>
+                <h2 class="mt-20 text-2xl font-semibold text-gray-900">Sign in to your account</h2>
+                <p class="mt-2 text-sm text-gray-700">Don’t have an account?
+                    <a class=" text-indigo-700 hover:underline" href="{% url 'console:signup' %}">Sign up</a>
+                    for a free trial.
+                </p>
+
+                {% if form.errors %}
+                    <div class="mt-4 rounded-md p-4">
+                        <div class="flex">
+                            <div class="ml-3">
+                                <h3 class="text-sm ">
+                                    There were errors with your submission
+                                </h3>
+                                <div class="mt-2 text-sm">
+                                    <ul class="list-disc space-y-1 pl-5">
+                                        {% for field in form %}
+                                            {% if field.errors %}
+                                                {% for error in field.errors %}
+                                                    <li>{{ field.label }}: {{ error }}</li>
+                                                {% endfor %}
+                                            {% endif %}
+                                        {% endfor %}
+                                        {% if form.non_field_errors %}
+                                            {% for error in form.non_field_errors %}
+                                                <li>{{ error }}</li>
+                                            {% endfor %}
+                                        {% endif %}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="mt-4 rounded-md {% if message.tags == 'success' %}bg-green-50{% else %}bg-red-50{% endif %} p-4">
+                            <div class="flex">
+                                <div class="ml-3">
+                                    <p class="text-sm {% if message.tags == 'success' %}text-green-800{% else %}text-red-800{% endif %}">
+                                        {{ message }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+                <form id="login-form" method="POST" class="mt-10 grid grid-cols-1 gap-y-8">
+                    {% csrf_token %}
+                    <div>
+                        <label for="{{ form.email.id_for_label }}" class="mb-3 block text-sm  text-gray-700">Verification Code</label>
+                         {{ form.code }}
+                    </div>
+                    <div class="col-span-full">
+                        <button id="submit-button"
+                                class="group inline-flex items-center justify-center rounded-md py-2 px-4 text-sm font-semibold focus:outline-hidden focus-visible:outline-2 focus-visible:outline-offset-2 bg-indigo-600 text-white hover:text-slate-100 hover:bg-indigo-500 active:bg-indigo-800 active:text-indigo-100 focus-visible:outline-indigo-600 w-full"
+                                type="submit">
+                            <span>Verify Code <span aria-hidden="true">→</span></span>
+                        </button>
+                    </div>
+                </form>
+            </main>
+        </div>
+        <div class="hidden sm:contents lg:relative lg:block lg:flex-1">
+            <img alt="" loading="lazy" width="1664" height="1866" decoding="async" data-nimg="1"
+                 class="absolute inset-0 h-full w-full object-cover" src="{{ STATIC_URL }}console/images/login.svg"
+                 style="color: transparent;"/>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "_master.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block meta_title %}{{ heading }}{% endblock %}
+{% block meta_description %}{{ heading }}{% endblock %}
+{% block meta_keywords %}{{ heading }}{% endblock %}
+{% block page_class %}page_console console-page sb-l-o sb-r-c{% endblock %}
+{% block heading %}false{% endblock %}
+{% load humanize %}
+{% load tz %}
+{% block content %}
+    <div class="sm:flex sm:items-center">
+        <div class="sm:flex-auto">
+            <h1 class="text-2xl font-light leading-6 ">Cloud Services</h1>
+            <p class="mt-2 text-sm text-gray-700">The cloud service providers you have connected.</p>
+        </div>
+        <div class="mt-4 sm:ml-2 sm:mt-0 sm:flex-none">
+          <a href="{% url 'console:cloud:connect' %}"
+               class="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                     stroke="currentColor" class="w-4 h-4 mr-2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+                </svg>
+                Connect Cloud
+            </a>
+        </div>
+    </div>
+    <div class="mt-8 flow-root">
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="">
+                <tr>
+                    <th scope="col"
+                        class="px-3 py-3 text-left font-light tracking-wider">
+                        Provider
+                    </th>
+                    <th scope="col"
+                        class="px-3 py-3 text-left font-light tracking-wider">
+                        Name
+                    </th>
+                    <th scope="col"
+                        class="px-3 py-3 text-left font-light tracking-wider">
+                        Last Synced
+                    </th>
+                    <th scope="col"
+                        class="px-3 py-3 text-left font-light tracking-wider">
+                        Status
+                    </th>
+                    <th scope="col"
+                        class="px-3 py-3 text-left font-light tracking-wider">
+
+                    </th>
+                </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200 text-sm">
+                {% for cloud in clouds %}
+                    <tr>
+                        <td class="px-3 py-3 whitespace-nowrap">
+                            <div class="">
+                                <div class="flex items-center">
+                                    {#                                    {% if cloud.provider.image %}#}
+                                    {#                                        <img class="h-5 rounded-md" src="{{ STATIC_URL }}{{ cloud.provider.image }}"#}
+                                    {#                                             alt="{{ cloud.provider.name }}">#}
+                                    {#                                    {% else %}#}
+                                    {{ cloud.provider.name }}
+                                    {#                                    {% endif %}#}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-3 py-3 whitespace-nowrap">
+                            {{ cloud.name }}
+                        </td>
+                        <td class="px-3 py-3 whitespace-nowrap">{{ cloud.last_synced|default_if_none:"Never"|naturaltime }}</td>
+
+                        <td class="px-3 py-3 whitespace-nowrap">
+                            <span class="px-2 inline-flex  leading-5  rounded-md {% if cloud.status == 'active' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                                {{ cloud.get_status_display }}
+                            </span>
+                        </td>
+                        <td class="px-3 py-3 whitespace-nowrap text-right ">
+                            <a href="{% url 'console:cloud:edit' cloud.id %}"
+                               class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-1 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 mr-2">Edit</a>
+                            <a href="{% url 'console:cloud:detail' cloud.id %}"
+                               class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-1 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 mr-2">Details</a>
+                            <form method="post" action="{% url 'console:cloud:sync' cloud.id %}" class="inline">
+                                {% csrf_token %}
+                                <button type="submit"
+                                        class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-1 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                                    Sync
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="px-3 py-4 text-sm  text-center">No cloud integrations found.
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

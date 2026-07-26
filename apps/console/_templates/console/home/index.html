@@ -1,0 +1,240 @@
+<!-- templates/console/dashboard.html -->
+{% extends "_master.html" %}
+{% load humanize %}
+
+{% block title %}Dashboard{% endblock %}
+{% block meta_title %}Dashboard{% endblock %}
+{% block meta_description %}CloudMoo Dashboard{% endblock %}
+{% block page_class %}page_console console-page sb-l-o sb-r-c{% endblock %}
+
+{% block content %}
+    {% if show_welcome %}
+        <h2 class="text-2xl leading-7 text-slate-600">Welcome {{ request.user.first_name }}</h2>
+        <p class="mt-2 text-4xl font-light tracking-tight text-slate-900 sm:text-4xl">Monitor Your Cloud
+            Infrastructure</p>
+        <p class="mt-6 text-lg leading-8 text-gray-600">
+            Track status changes and configuration updates for your cloud assets in real-time. We currently
+            support:
+        </p>
+        <div class="mt-4 space-y-2 text-gray-600">
+            <p>• DigitalOcean - servers and volumes</p>
+            <p>• Vultr - servers and volumes</p>
+            <p>• Hetzner - servers and volumes</p>
+        </div>
+        <div class="mt-8 flex justify-center">
+            <a href="{% url 'console:cloud:connect' %}"
+               class="rounded-md bg-indigo-600 px-3.5 py-2.5 text-sm font-light text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                Connect Your First Cloud Provider
+            </a>
+        </div>
+    {% else %}
+        <div class="sm:flex sm:items-center">
+            <div class="sm:flex-auto">
+                <h1 class="text-2xl font-light leading-6">Dashboard</h1>
+                <p class="mt-2 text-sm text-gray-700">Your account overview</p>
+            </div>
+
+            <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+                <a href="{% url 'console:asset:list' %}"
+                   class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    Cloud
+                    Assets</a>
+            </div>
+            <div class="mt-4 sm:ml-4 sm:mt-0 sm:flex-none">
+                <a href="{% url 'console:cloud:list' %}"
+                   class="binline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    Cloud Services</a>
+
+            </div>
+        </div>
+        <div class="mt-8">
+
+            <!-- Account Overview -->
+            <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
+                <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow sm:p-6">
+                    <dt class="truncate text-sm font-medium text-gray-500">Connected Clouds</dt>
+                    <dd class="mt-1 text-3xl font-semibold tracking-tight text-indigo-700">{{ clouds.count }}</dd>
+                </div>
+                <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow sm:p-6">
+                    <dt class="truncate text-sm font-medium text-gray-500">Total Assets</dt>
+                    <dd class="mt-1 text-3xl font-semibold tracking-tight text-emerald-700">{{ total_assets }}</dd>
+                </div>
+                <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow sm:p-6">
+                    <dt class="truncate text-sm font-medium text-gray-500">Asset Health</dt>
+                    <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-600">
+                        {% if total_assets > 0 %}100%{% else %}--{% endif %}
+                    </dd>
+                    <p class="mt-1 text-xs text-gray-500">All assets monitored</p>
+                </div>
+            </div>
+
+            <!-- Asset Breakdown -->
+            {% if total_assets > 0 %}
+            <div class="bg-white overflow-hidden shadow rounded-lg mb-8">
+                <div class="px-4 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-medium leading-6 text-gray-900">Asset Breakdown</h3>
+                    <p class="mt-1 text-sm text-gray-500">Distribution of your monitored assets</p>
+                </div>
+                <div class="px-4 py-5 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
+                            <span class="text-sm font-medium text-gray-900">Servers</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-32 bg-gray-200 rounded-full h-2">
+                                <div class="bg-blue-500 h-2 rounded-full" style="width: {{ asset_breakdown.servers.percentage }}%"></div>
+                            </div>
+                            <span class="text-sm text-gray-600 w-12 text-right">{{ asset_breakdown.servers.count }}</span>
+                            <span class="text-xs text-gray-500 w-8 text-right">{{ asset_breakdown.servers.percentage }}%</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-purple-500 rounded-full mr-3"></div>
+                            <span class="text-sm font-medium text-gray-900">Volumes</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-32 bg-gray-200 rounded-full h-2">
+                                <div class="bg-purple-500 h-2 rounded-full" style="width: {{ asset_breakdown.volumes.percentage }}%"></div>
+                            </div>
+                            <span class="text-sm text-gray-600 w-12 text-right">{{ asset_breakdown.volumes.count }}</span>
+                            <span class="text-xs text-gray-500 w-8 text-right">{{ asset_breakdown.volumes.percentage }}%</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-orange-500 rounded-full mr-3"></div>
+                            <span class="text-sm font-medium text-gray-900">Databases</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-32 bg-gray-200 rounded-full h-2">
+                                <div class="bg-orange-500 h-2 rounded-full" style="width: {{ asset_breakdown.databases.percentage }}%"></div>
+                            </div>
+                            <span class="text-sm text-gray-600 w-12 text-right">{{ asset_breakdown.databases.count }}</span>
+                            <span class="text-xs text-gray-500 w-8 text-right">{{ asset_breakdown.databases.percentage }}%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+
+            <!-- Cloud Providers -->
+            <div class="bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200 mb-8">
+                <div class="px-4 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-medium leading-6 text-gray-900">Cloud Providers</h3>
+                    <p class="mt-1 text-sm text-gray-500">Your connected cloud service providers</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-300">
+                        <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Provider
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Name
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Total Assets
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Asset Details
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Last Synced
+                            </th>
+                            <th scope="col" class="relative px-6 py-3">
+                                <span class="sr-only">Actions</span>
+                            </th>
+                        </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                        {% for cloud in clouds %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div class="text-sm font-medium text-gray-900">{{ cloud.provider.name }}</div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">{{ cloud.name }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full
+                                      {% if cloud.status == 'active' %}bg-green-100 text-green-800
+                                      {% elif cloud.status == 'paused' %}bg-yellow-100 text-yellow-800
+                                      {% else %}bg-red-100 text-red-800{% endif %}">
+                                      {{ cloud.get_status_display }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-semibold text-gray-900">{{ cloud.total_assets }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        {% if cloud.total_assets > 0 %}monitored assets{% else %}no assets{% endif %}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-xs text-gray-600 space-y-1">
+                                        {% if cloud.server_count > 0 %}
+                                            <div class="flex items-center">
+                                                <div class="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+                                                {{ cloud.server_count }} server{{ cloud.server_count|pluralize }}
+                                            </div>
+                                        {% endif %}
+                                        {% if cloud.volume_count > 0 %}
+                                            <div class="flex items-center">
+                                                <div class="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+                                                {{ cloud.volume_count }} volume{{ cloud.volume_count|pluralize }}
+                                            </div>
+                                        {% endif %}
+                                        {% if cloud.database_count > 0 %}
+                                            <div class="flex items-center">
+                                                <div class="w-2 h-2 bg-orange-500 rounded-full mr-2"></div>
+                                                {{ cloud.database_count }} database{{ cloud.database_count|pluralize }}
+                                            </div>
+                                        {% endif %}
+                                        {% if cloud.total_assets == 0 %}
+                                            <div class="text-gray-400 italic">No assets found</div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {{ cloud.last_synced|default_if_none:"Never"|naturaltime }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <a href="{% url 'console:cloud:detail' cloud.pk %}" class="text-indigo-600 hover:text-indigo-900">
+                                        View
+                                    </a>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="px-6 py-8 text-center">
+                                    <div class="text-gray-400">
+                                        <svg class="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.003 4.003 0 003 15z" />
+                                        </svg>
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900">No cloud providers</h3>
+                                        <p class="mt-1 text-sm text-gray-500">Get started by connecting your first cloud provider.</p>
+                                        <div class="mt-6">
+                                            <a href="{% url 'console:cloud:connect' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                                                Connect Provider
+                                            </a>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+{% endblock %}

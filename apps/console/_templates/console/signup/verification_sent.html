@@ -1,0 +1,17 @@
+{% extends "_master_auth.html" %}
+{% block content %}
+
+<main class="grid min-h-full place-items-center bg-white px-6 py-24 sm:py-32 lg:px-8">
+  <div class="text-center">
+    <p class="text-base font-semibold text-indigo-600">Success!</p>
+    <h1 class="mt-4 text-5xl font-semibold tracking-tight text-balance text-gray-900 sm:text-7xl">Check Your Email</h1>
+    <p class="mt-6 text-xl  text-pretty text-gray-500 sm:text-xl/8">We've sent a verification link to your email address.</p>
+          <p class="text-lg text-gray-600">Please check your inbox and click the verification link to complete your registration.</p>
+
+    <div class="mt-10 flex items-center justify-center gap-x-6">
+      <a href="{% url 'console:login' %}" class="rounded-md bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Return to login</a>
+    </div>
+  </div>
+</main>
+
+{% endblock %}

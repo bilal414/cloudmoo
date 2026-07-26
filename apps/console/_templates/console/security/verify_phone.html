@@ -1,0 +1,65 @@
+{% extends "_master.html" %}
+{% load custom_filters %}
+{% load humanize %}
+{% load tz %}
+
+{% block content %}
+
+    <div class="sm:flex sm:items-center">
+        <div class="sm:flex-auto">
+            <h1 class="text-xl font-normal leading-7 text-slate-600 sm:truncate sm:text-2xl sm:tracking-tight">Security - Verify Two-Factor Authentication</h1>
+            <p class="mt-2 text-sm text-gray-700">Verify your two-factor phone number using code received in sms.</p>
+        </div>
+    </div>
+    <div class="bg-white shadow rounded-lg mt-8">
+        <div class="px-4 py-5 sm:p-6">
+
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="mt-4 rounded-md {% if message.tags == 'success' %}bg-green-50{% elif message.tags == 'error' %}bg-red-50{% else %}bg-blue-50{% endif %} p-4">
+                        <div class="flex">
+                            <div class="ml-3">
+                                <p class="text-sm font-medium {% if message.tags == 'success' %}text-green-800{% elif message.tags == 'error' %}text-red-800{% else %}text-blue-800{% endif %}">
+                                    {{ message }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <div class="">
+                <form method="post" class="space-y-6">
+                    {% csrf_token %}
+
+                    {% for field in form %}
+                        <div>
+                            <label for="{{ field.id_for_label }}"
+                                   class="block text-sm font-medium text-gray-700">
+                                {{ field.label }}
+                            </label>
+                            <div class="mt-1">
+                                {{ field }}
+                            </div>
+                            {% if field.help_text %}
+                                <p class="mt-2 text-sm text-gray-500">{{ field.help_text }}</p>
+                            {% endif %}
+                            {% if field.errors %}
+                                {% for error in field.errors %}
+                                    <p class="mt-2 text-sm text-red-600">{{ error }}</p>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+
+                    <div class="flex justify-start">
+                        <button type="submit"
+                                class="mr-3 inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                            Update Phone Number
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

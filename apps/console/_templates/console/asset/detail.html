@@ -1,0 +1,557 @@
+{% extends "_master.html" %}
+{% load humanize %}
+
+{% block title %}{{ asset.name }} - Asset Details{% endblock %}
+{% block meta_title %}{{ asset.name }} - Asset Details{% endblock %}
+{% block meta_description %}Details for {{ asset.name }} asset{% endblock %}
+
+{% block content %}
+    <div x-data="monitoringToggle('{{ asset.monitoring }}', '{{ csrf_token }}')">
+        <div class="mb-8">
+            <div class="md:flex md:items-center md:justify-between">
+                <div class="min-w-0 flex-1">
+                    <h1 id="{{ asset.key }}" class="text-2xl font-light leading-6 ">
+                        Asset: {{ asset.name }}
+                    </h1>
+                    <div class="mt-1 flex flex-col sm:mt-0 sm:flex-row sm:flex-wrap sm:space-x-6">
+                        <div class="mt-2 flex items-center text-sm ">
+                            <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" viewBox="0 0 20 20"
+                                 fill="currentColor">
+                                <path fill-rule="evenodd"
+                                      d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2-1h8a1 1 0 011 1v12a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"
+                                      clip-rule="evenodd"></path>
+                            </svg>
+                            {{ cloud.provider.name }} - {{ asset.get_type_display }}
+                        </div>
+                        <div class="mt-2 flex items-center text-sm ">
+                            <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" viewBox="0 0 20 20"
+                                 fill="currentColor">
+                                <path fill-rule="evenodd"
+                                      d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 14a6 6 0 110-12 6 6 0 010 12zm0-9a1 1 0 011 1v4a1 1 0 11-2 0V8a1 1 0 011-1z"
+                                      clip-rule="evenodd"></path>
+                            </svg>
+                            Created {{ asset.created|naturaltime }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4 flex md:ml-4 md:mt-0">
+                    <button
+                            @click="toggleMonitoring"
+                            :disabled="isLoading"
+                            class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            :class="{ 'opacity-50 cursor-not-allowed': isLoading }"
+                    >
+                        <span x-text="buttonText"></span>
+                        <svg x-show="isLoading" class="animate-spin ml-2 h-4 w-4 text-white"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Message -->
+        <div
+                x-show="showConfirmation"
+                x-transition:enter="transform ease-out duration-300 transition"
+                x-transition:enter-start="translate-y-2 opacity-0 sm:translate-y-0 sm:translate-x-2"
+                x-transition:enter-end="translate-y-0 opacity-100 sm:translate-x-0"
+                x-transition:leave="transition ease-in duration-100"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                class="rounded-md bg-green-50 p-4 mb-6"
+        >
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                              clip-rule="evenodd"></path>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm  text-green-800">
+                        Monitoring status has been updated successfully.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Asset Information Card -->
+        <div class="bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200 mb-8">
+            <div class="px-4 py-4">
+                <h3 class="text-lg  leading-6 ">Asset Information</h3>
+            </div>
+            <div class="px-4 py-4">
+                <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                        <dt class="text-sm  ">Type</dt>
+                        <dd class="mt-1 text-sm ">{{ asset.get_type_display }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Cloud Service</dt>
+                        <dd class="mt-1 text-sm ">{{ cloud.provider.name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Cloud Name</dt>
+                        <dd class="mt-1 text-sm ">{{ cloud.name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Asset ID</dt>
+                        <dd class="mt-1 text-sm  font-mono">{{ asset.unique_id }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Asset URL</dt>
+                        <dd class="mt-1 text-sm ">
+                            <a href="{{ asset.provider_url }}" target="_blank" rel="noopener noreferrer"
+                               class="text-indigo-600 hover:text-indigo-900">View in provider console →</a>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Current Status</dt>
+                        <dd class="mt-1">
+                            <div class="flex items-center space-x-2">
+                    <span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs
+                        {% if asset.status == 'active' %}bg-green-100 text-green-800
+                        {% elif asset.status == 'inactive' %}bg-red-100 text-red-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {{ asset.status|default:"N/A"|capfirst }}
+                    </span>
+                                <button 
+                                    @click="checkStatus()" 
+                                    :disabled="statusCheckLoading"
+                                    class="inline-flex items-center px-2 py-1 border border-gray-300 shadow-sm text-xs leading-4 font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                    :class="{ 'opacity-50 cursor-not-allowed': statusCheckLoading }"
+                                    title="Check status now">
+                                    <svg x-show="!statusCheckLoading" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    <svg x-show="statusCheckLoading" class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm  ">Monitoring Status</dt>
+                        <dd class="mt-1">
+                    <span
+                            x-text="monitoringStatus"
+                            class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs "
+                            :class="{
+                            'bg-green-100 text-green-800': monitoringStatus === 'Active',
+                            'bg-red-100 text-red-800': monitoringStatus === 'Disabled'
+                        }"
+                    ></span>
+                        </dd>
+                    </div>
+
+                </dl>
+            </div>
+        </div>
+        <!-- Email Notifications Card -->
+        <div class="bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200 mb-8" x-data="emailConfig()">
+            <div class="px-4 py-4">
+                <h2 class="text-lg/6  ">Email Notifications</h2>
+                <p class="mt-1 max-w-2xl text-sm ">Manage email addresses for asset status
+                    notifications</p>
+            </div>
+            <div class="px-4 py-4">
+                <div class="space-y-4">
+                    <ul class="divide-y divide-gray-200">
+                        <template x-for="email in emails" :key="email">
+                            <li class="py-3 flex justify-between items-center">
+                                <span class="text-sm " x-text="email"></span>
+                                <button @click="removeEmail(email)"
+                                        class="text-sm text-red-600 hover:text-red-900 ">
+                                    Remove
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+
+                    <div class="mt-4">
+                        <div class="flex gap-x-4">
+                            <div class="flex-grow">
+                                <input type="email"
+                                       x-model="newEmail"
+                                       placeholder="Enter email address"
+                                       class="block w-full rounded-md border-0 py-1.5  shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6">
+                            </div>
+                            <button @click="addEmail()"
+                                    class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-2 py-1 text-sm  text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                                Add Email
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Messages -->
+                    <div x-show="errorMessage"
+                         class="mt-2 text-sm text-red-600"
+                         x-text="errorMessage"></div>
+                    <div x-show="successMessage"
+                         class="mt-2 text-sm text-green-600"
+                         x-text="successMessage"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Timeline Card -->
+        <div class="bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200 mb-8">
+            <div class="px-4 py-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg/6">Status Change Timeline</h3>
+                        <p class="mt-1 max-w-2xl text-sm">Last 30 days of status changes</p>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        {% if status_timeline %}
+                            <!-- Page Size Selector -->
+                            <div class="flex items-center space-x-2">
+                                <label for="timeline-page-size" class="text-sm text-gray-700">Show:</label>
+                                <select id="timeline-page-size" 
+                                        onchange="updateTimelinePageSize(this.value)"
+                                        class="text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                                    {% for size in timeline_page_size_options %}
+                                        <option value="{{ size }}" {% if size == timeline_page_size %}selected{% endif %}>
+                                            {{ size }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <span class="text-sm text-gray-700">entries</span>
+                            </div>
+                            
+                            <a href="?export=csv"
+                               class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                <svg class="mr-2 h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd"
+                                          d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
+                                          clip-rule="evenodd"></path>
+                                </svg>
+                                Export CSV
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+
+            {% if status_timeline %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-300">
+                        <thead>
+                        <tr>
+                            <th scope="col" class="px-3 py-3 text-left font-light tracking-wider">Status</th>
+                            <th scope="col" id="timezone-header" class="px-3 py-3 text-left font-light tracking-wider">
+                                Timestamp ({{ status_timeline.0.timezone|default:"UTC" }})
+                            </th>
+                            <th scope="col" class="px-3 py-3 text-left font-light tracking-wider">Duration</th>
+                            <th scope="col" class="px-3 py-3 text-left font-light tracking-wider">Changes</th>
+                        </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 text-sm">
+                        {% for change in status_timeline %}
+                            <tr>
+                                <td class="px-3 py-3 whitespace-nowrap">
+                            <span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs
+                                {% if change.status == 'active' or change.status == 'running' %}bg-green-100 text-green-800
+                                {% elif change.status == 'inactive' or change.status == 'stopped' %}bg-red-100 text-red-800
+                                {% else %}bg-blue-100 text-blue-800{% endif %}">
+                                {{ change.status|capfirst }}
+                            </span>
+                                </td>
+                                <td class="px-3 py-3 whitespace-nowrap timestamp-cell"
+                                    data-timestamp="{{ change.timestamp|date:'c' }}">
+                                    {{ change.timestamp|date:"F d, Y H:i:s" }}
+                                </td>
+                                <td class="px-3 py-3 whitespace-nowrap">
+                                    {{ change.duration|default:"-" }}
+                                </td>
+                                <td class="px-3 py-3">
+                                    {% if change.metadata_changes %}
+                                        <ul class="list-disc list-inside space-y-1">
+                                            {% for change_item in change.metadata_changes %}
+                                                <li class="text-gray-600">{{ change_item }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Timeline Pagination -->
+                <div class="px-4 py-4 border-t border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <div class="text-sm text-gray-700">
+                                Page {{ timeline_page_number }}{% if timeline_total_pages > 1 %} of {{ timeline_total_pages }}{% endif %}
+                            </div>
+                            {% if timeline_total_pages > 1 %}
+                                <div class="flex items-center space-x-2">
+                                    <label for="page-select" class="text-sm text-gray-700">Go to:</label>
+                                    <select id="page-select" 
+                                            onchange="goToTimelinePage(this.value)"
+                                            class="text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                                        {% for page_num in timeline_page_range %}
+                                            <option value="{{ page_num }}" 
+                                                    {% if page_num == timeline_page_number %}selected{% endif %}>
+                                                Page {{ page_num }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center space-x-1">
+                            <!-- Page Numbers -->
+                            {% if timeline_total_pages > 1 %}
+                                <nav class="flex space-x-1" aria-label="Pagination">
+                                    {% if timeline_has_previous %}
+                                        <a href="?timeline_page={{ timeline_page_number|add:-1 }}&timeline_page_size={{ timeline_page_size }}"
+                                           class="px-2 py-1 text-sm border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                            ‹
+                                        </a>
+                                    {% endif %}
+                                    
+                                    {% for page_num in timeline_page_range %}
+                                        {% if page_num == timeline_page_number %}
+                                            <span class="px-3 py-1 text-sm border border-indigo-500 rounded-md bg-indigo-500 text-white">
+                                                {{ page_num }}
+                                            </span>
+                                        {% else %}
+                                            <a href="?timeline_page={{ page_num }}&timeline_page_size={{ timeline_page_size }}"
+                                               class="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                                {{ page_num }}
+                                            </a>
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                    {% if timeline_has_next %}
+                                        <a href="?timeline_page={{ timeline_page_number|add:1 }}&timeline_page_size={{ timeline_page_size }}"
+                                           class="px-2 py-1 text-sm border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                            ›
+                                        </a>
+                                    {% endif %}
+                                </nav>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <h3 class="mt-2 text-sm font-semibold">No Recent Status Changes</h3>
+                    <p class="mt-1 text-sm">No status changes have been recorded in the last 30 days.</p>
+                </div>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+    <script>
+        function emailConfig() {
+            return {
+                emails: {{ email_list|safe }},
+                newEmail: '',
+                errorMessage: '',
+                successMessage: '',
+                addEmail() {
+                    if (!this.newEmail) {
+                        this.errorMessage = 'Please enter an email address';
+                        return;
+                    }
+                    if (!this.validateEmail(this.newEmail)) {
+                        this.errorMessage = 'Please enter a valid email address';
+                        return;
+                    }
+                    if (this.emails.includes(this.newEmail)) {
+                        this.errorMessage = 'This email is already in the list';
+                        return;
+                    }
+
+                    this.emails.push(this.newEmail);
+                    this.newEmail = '';
+                    this.errorMessage = '';
+                    this.saveEmails();
+                },
+                removeEmail(email) {
+                    this.emails = this.emails.filter(e => e !== email);
+                    this.saveEmails();
+                },
+                validateEmail(email) {
+                    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    return re.test(email);
+                },
+                saveEmails() {
+                    this.errorMessage = '';
+                    this.successMessage = '';
+
+                    fetch('{% url "console:asset:update_emails" provider_code=asset.owner.cloud.provider.code asset_type=asset.type asset_id=asset.id %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({email_list: this.emails})
+                    })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(data => Promise.reject(data));
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.success) {
+                                this.successMessage = 'Email notifications updated successfully';
+                                setTimeout(() => {
+                                    this.successMessage = '';
+                                }, 3000);
+                            } else {
+                                this.errorMessage = data.error || 'Failed to update email notifications';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            this.errorMessage = error.error || 'An error occurred while updating email notifications';
+                        });
+                }
+            }
+        }
+
+        function monitoringToggle(initialStatus, csrfToken) {
+            return {
+                monitoringStatus: initialStatus.charAt(0).toUpperCase() + initialStatus.slice(1),
+                isLoading: false,
+                showConfirmation: false,
+                statusCheckLoading: false,
+                statusCheckMessage: '',
+                get buttonText() {
+                    return this.monitoringStatus === 'Active' ? 'Disable Monitoring' : 'Enable Monitoring';
+                },
+                toggleMonitoring() {
+                    if (this.isLoading) return;
+
+                    this.isLoading = true;
+                    const newStatus = this.monitoringStatus === 'Active' ? 'disabled' : 'active';
+
+                    fetch('{% url "console:asset:update_monitoring" provider_code=asset.owner.cloud.provider.code asset_type=asset.type asset_id=asset.id %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: 'status=' + newStatus
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                this.monitoringStatus = data.new_status.charAt(0).toUpperCase() + data.new_status.slice(1);
+                                this.showConfirmation = true;
+                                setTimeout(() => {
+                                    this.showConfirmation = false;
+                                }, 5000);
+                            } else {
+                                alert('Error: ' + data.error);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('An error occurred. Please try again.');
+                        })
+                        .finally(() => {
+                            this.isLoading = false;
+                        });
+                },
+                checkStatus() {
+                    if (this.statusCheckLoading) return;
+
+                    this.statusCheckLoading = true;
+                    this.statusCheckMessage = '';
+
+                    fetch('{% url "console:asset:check_status" provider_code=asset.owner.cloud.provider.code asset_type=asset.type asset_id=asset.id %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': csrfToken
+                        }
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                this.statusCheckMessage = `Status updated: ${data.status}`;
+                                // Refresh the page to show updated status and timeline
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 1500);
+                            } else {
+                                alert('Status check failed: ' + data.error);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('Failed to check status. Please try again.');
+                        })
+                        .finally(() => {
+                            this.statusCheckLoading = false;
+                        });
+                }
+            };
+        }
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Update timezone in header
+            const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const tzHeader = document.querySelector('#timezone-header');
+            if (tzHeader) {
+                tzHeader.textContent = `Timestamp (${userTimeZone})`;
+            }
+
+            // Convert timestamps to local timezone
+            document.querySelectorAll('.timestamp-cell').forEach(cell => {
+                const utcDate = new Date(cell.getAttribute('data-timestamp'));
+                cell.textContent = utcDate.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZoneName: 'short'
+                });
+            });
+        });
+        
+        // Timeline pagination functions
+        function updateTimelinePageSize(newSize) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('timeline_page_size', newSize);
+            url.searchParams.set('timeline_page', '1'); // Reset to first page
+            window.location.href = url.toString();
+        }
+        
+        function goToTimelinePage(pageNumber) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('timeline_page', pageNumber);
+            window.location.href = url.toString();
+        }
+    </script>
+{% endblock %}

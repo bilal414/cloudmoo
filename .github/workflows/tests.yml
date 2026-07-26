@@ -1,0 +1,55 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  django-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cloudmoo
+          POSTGRES_USER: cloudmoo
+          POSTGRES_PASSWORD: cloudmoo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloudmoo -d cloudmoo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Django checks
+        env:
+          DJANGO_SECRET_KEY: ci-test-secret-key-not-for-production
+        run: python manage.py check
+
+      - name: Run migrations
+        env:
+          DJANGO_SECRET_KEY: ci-test-secret-key-not-for-production
+        run: |
+          python manage.py migrate
+          python manage.py createcachetable
+
+      - name: Run tests
+        env:
+          DJANGO_SECRET_KEY: ci-test-secret-key-not-for-production
+        run: python manage.py test tests/

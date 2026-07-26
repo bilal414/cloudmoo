@@ -1,0 +1,44 @@
+{% extends "_master.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block meta_title %}{{ heading }}{% endblock %}
+{% block meta_description %}{{ heading }}{% endblock %}
+{% block meta_keywords %}{{ heading }}{% endblock %}
+{% block page_class %}page_console console-page sb-l-o sb-r-c{% endblock %}
+{% block heading %}false{% endblock %}
+{% load humanize %}
+{% load tz %}
+{% block content %}
+    <div class="sm:flex sm:items-center">
+        <div class="sm:flex-auto">
+            <h1 class="text-2xl font-light leading-6 ">Connect Cloud Service</h1>
+            <p class="mt-2 text-sm text-gray-700">Select the cloud service you want to connect. You connect multiple
+                accounts from same cloud provider.</p>
+        </div>
+    </div>
+
+
+    <div class="bg-gray-200 overflow-hidden shadow divide-y divide-gray-200 sm:divide-y-0 sm:grid sm:grid-cols-3 sm:gap-px mt-6">
+        {% for cloud_provider in cloud_providers %}
+            <div class="sm:rounded-tr-none relative group bg-white p-6 focus-within:ring-2 focus-within:ring-inset focus-within:ring-indigo-500">
+                <div>
+                    {% if cloud_provider.status == 'active' %}
+                        <a href="{% url 'console:cloud:'|add:cloud_provider.code|add:':connect' %}">
+                            <img class="max-h-12"
+                                 src="{{ STATIC_URL }}{{ cloud_provider.image }}"
+                                 alt="{{ cloud_provider.name }}">
+                        </a>
+                    {% else %}
+                        <div class="relative">
+                            <img class="max-h-12 opacity-50"
+                                 src="{{ STATIC_URL }}{{ cloud_provider.image }}"
+                                 alt="{{ cloud_provider.name }}">
+                            <div class="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                                <span class="bg-indigo-700 text-white px-2 py-1 rounded text-sm">Coming Soon</span>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

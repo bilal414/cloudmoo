@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cloudmoo_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-cloudmoo}
+      POSTGRES_USER: ${DB_USER:-cloudmoo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cloudmoo}
+    volumes:
+      - cloudmoo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-cloudmoo} -d $${POSTGRES_DB:-cloudmoo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    container_name: cloudmoo_web_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:80"
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  cloudmoo_pgdata:

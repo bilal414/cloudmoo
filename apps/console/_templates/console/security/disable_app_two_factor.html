@@ -1,0 +1,66 @@
+{% extends "_master.html" %}
+{% block title %}Disable App-Based Two-Factor Authentication{% endblock %}
+{% block content %}
+
+    <div class="sm:flex sm:items-center mb-6">
+        <div class="sm:flex-auto">
+            <h1 class="text-2xl font-light leading-6">Security - Disable Two-Factor Authentication</h1>
+            <p class="mt-2 text-sm text-gray-700">
+                Disabling two-factor authentication will make your account less secure.
+            </p>
+        </div>
+    </div>
+
+    <div class="bg-white shadow sm:rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+            <h3 class="text-lg leading-6  text-gray-900">
+                Are you sure you want to disable app-based two-factor authentication?
+            </h3>
+            <div class="mt-2 text-sm text-gray-500">
+                <p>This will make your account less secure. You will need to set it up again if you want to
+                    re-enable it.</p>
+            </div>
+            <form method="post" class="mt-5">
+                {% csrf_token %}
+                <div class="space-y-4">
+                    {% for field in form %}
+                        <div>
+                            <div class="flex items-start">
+                                {% if field.name == 'confirm' %}
+                                    <div class="flex items-center h-5">
+                                        {{ field }}
+                                    </div>
+                                    <div class="ml-3 text-sm">
+                                        <label for="{{ field.id_for_label }}"
+                                               class="font-medium text-gray-600">{{ field.label }}</label>
+                                    </div>
+                                {% else %}
+                                    <div class="">
+                                        <label for="{{ field.id_for_label }}"
+                                               class="block text-sm font-medium text-gray-600">
+                                            {{ field.label }}
+                                        </label>
+                                        {{ field }}
+                                        {% if field.help_text %}
+                                            <p class="mt-2 text-sm text-gray-500">{{ field.help_text }}</p>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% if field.errors %}
+                                <p class="mt-2 text-sm text-red-600">{{ field.errors|striptags }}</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="mt-5">
+                    <button type="submit"
+                            class="inline-flex items-center justify-center px-4 py-2 border border-transparent font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:text-sm">
+                        Disable App-Based 2FA
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+{% endblock %}
