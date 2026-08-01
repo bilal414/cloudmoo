@@ -6,8 +6,64 @@ from PostgreSQL JSON fields, so the DynamoDB wire-format handling
 ({'S': ..., 'N': ..., 'M': ..., 'L': ...}) from the original has been dropped.
 """
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# Provider APIs can return credential-like values as part of otherwise useful
+# configuration payloads. Status metadata is persisted in PostgreSQL and can
+# be included in notification emails, so those values must not be retained.
+SENSITIVE_METADATA_KEY_PARTS = (
+    'password',
+    'secret',
+    'token',
+    'accesskey',
+    'privatekey',
+    'credential',
+    'authorization',
+    'apikey',
+)
+
+SENSITIVE_ERROR_PATTERN = re.compile(
+    r"(?i)(['\"]?(?:password|secret|token|access[_-]?key|private[_-]?key|credential|authorization|api[_-]?key)['\"]?\s*[:=]\s*['\"]?)([^'\",;\s}]+)"
+)
+BEARER_ERROR_PATTERN = re.compile(
+    r"(?i)\b(bearer|basic)\s+[^\s,;]+"
+)
+MAX_ERROR_MESSAGE_LENGTH = 2048
+
+
+def redact_sensitive_metadata(value):
+    """Recursively redact credential-like metadata values before persistence."""
+    if isinstance(value, dict):
+        redacted = {}
+        for key, child in value.items():
+            normalized_key = ''.join(
+                character for character in str(key).lower() if character.isalnum()
+            )
+            if (
+                any(part in normalized_key for part in SENSITIVE_METADATA_KEY_PARTS)
+                or normalized_key == 'variables'
+            ):
+                if isinstance(child, dict):
+                    redacted[key] = {variable: '[REDACTED]' for variable in child}
+                else:
+                    redacted[key] = '[REDACTED]'
+            else:
+                redacted[key] = redact_sensitive_metadata(child)
+        return redacted
+    if isinstance(value, list):
+        return [redact_sensitive_metadata(item) for item in value]
+    return value
+
+
+def redact_error_message(value):
+    """Bound and redact provider error text before storing or returning it."""
+    redacted = redact_sensitive_metadata(value)
+    message = str(redacted)
+    message = BEARER_ERROR_PATTERN.sub(r'\1 [REDACTED]', message)
+    message = SENSITIVE_ERROR_PATTERN.sub(r'\1[REDACTED]', message)
+    return message[:MAX_ERROR_MESSAGE_LENGTH]
 
 # Fields worth tracking per provider/asset type, mapped to display names.
 # Only changes to these fields trigger "configuration change" notifications.
@@ -478,7 +534,7 @@ def filter_metadata(metadata, provider, asset_type):
                 last_valid_part = parts[-2]
                 target[last_valid_part] = current
 
-        return filtered_metadata
+        return redact_sensitive_metadata(filtered_metadata)
 
     # Original logic for other providers
     for field_path in important_fields.keys():
@@ -519,7 +575,7 @@ def filter_metadata(metadata, provider, asset_type):
                     current = current.get(part, {})
                     target = target[part]
 
-    return filtered_metadata
+    return redact_sensitive_metadata(filtered_metadata)
 
 
 def get_nested_value(data, path):

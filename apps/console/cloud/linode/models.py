@@ -1,8 +1,13 @@
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import (
+    CloudValidationTransientError,
+    CoreCloud,
+    require_inventory_list,
+    validate_provider_response,
+)
 from apps.console.utils.models import UtilCloud, UtilAsset
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 
 class CoreLinodeAccount(UtilCloud):
@@ -19,23 +24,24 @@ class CoreLinodeAccount(UtilCloud):
         try:
             headers = {'Authorization': f'Bearer {self.access_token}'}
             response = requests.get('https://api.linode.com/v4/account', headers=headers, timeout=10)
-            if response.status_code != 200:
-                return False
-            response.json()
-            return True
-        except Exception:
-            return False
+            return validate_provider_response(response, 'Linode')
+        except CloudValidationTransientError:
+            raise
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'Linode validation temporarily unavailable'
+            ) from error
 
     def sync_assets(self):
         self.sync_servers()
         self.sync_volumes()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint, params=None):
         headers = {'Authorization': f'Bearer {self.access_token}'}
         url = f'https://api.linode.com/v4/{endpoint}'
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
         return response.json()
 
@@ -45,10 +51,14 @@ class CoreLinodeAccount(UtilCloud):
         per_page = 100
 
         while True:
+            if page > 10000:
+                raise CloudInventoryTransientError(
+                    'Linode returned an invalid pagination sequence'
+                )
             params = {'page': page, 'page_size': per_page}
             data = self._make_api_call(endpoint, params)
 
-            items = data.get('data', [])
+            items = require_inventory_list(data, ['data'], 'Linode')
             all_items.extend(items)
 
             # Check if there are more pages
@@ -141,13 +151,19 @@ class CoreLinodeServer(UtilAsset):
             'Content-Type': 'application/json'
         }
         try:
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=15)
             response.raise_for_status()
             data = response.json()
             current_status = data['status']
             return current_status, data
         except requests.exceptions.RequestException as e:
-            error_status = 'not_found' if e.response.status_code == 404 else 'invalid_access_token' if e.response.status_code == 401 else 'error'
+            response = getattr(e, 'response', None)
+            status_code = getattr(response, 'status_code', None)
+            error_status = (
+                'not_found' if status_code == 404
+                else 'invalid_access_token' if status_code in (401, 403)
+                else 'error'
+            )
             return error_status, str(e)
 
 
@@ -164,5 +180,3 @@ class CoreLinodeVolume(UtilAsset):
     @property
     def provider_url(self):
         return f"https://cloud.linode.com/volumes/{self.unique_id}"
-
-

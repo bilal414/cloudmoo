@@ -19,7 +19,12 @@ COPY . /code
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Make port 8080 available to the world outside this container
+# The web entrypoint starts nginx as root, then drops gunicorn to this user.
+# Celery worker and beat services run as this user from the start.
+RUN groupadd --system cloudmoo && \
+    useradd --system --gid cloudmoo --home-dir /code --shell /usr/sbin/nologin --no-create-home cloudmoo
+
+# Make port 80 available to the world outside this container
 EXPOSE 80
 
 COPY init.sh /usr/local/bin/

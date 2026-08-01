@@ -10,8 +10,9 @@ from model_utils.models import TimeStampedModel
 
 from apps.console.account.models import CoreAccountMembership
 from apps.monitoring import schedules
-from apps.monitoring.checks.base import format_duration
-from apps.monitoring.models import AssetStatusEmail, AssetStatusLog
+from apps.monitoring.checks.base import NON_ALERTING_STATUSES, format_duration
+from apps.monitoring.metadata import redact_sensitive_metadata
+from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,33 @@ class UtilAsset(TimeStampedModel):
         return f"{settings.APP_URL}/console/assets/{self.provider_code}/{self.type.lower()}/{self.id}/"
 
     @property
+    def monitoring_state(self):
+        """Return the durable monitoring heartbeat for this asset, if present."""
+        return AssetMonitoringState.objects.filter(asset_key=self.key).first()
+
+    @property
+    def last_checked_at(self):
+        state = self.monitoring_state
+        return state.last_checked_at if state else None
+
+    @staticmethod
+    def _monitoring_state_stale(asset, state, current_time=None):
+        """Evaluate freshness without issuing another state query."""
+        if asset.monitoring != asset.Monitoring.ACTIVE:
+            return False
+        if state is None or state.last_checked_at is None:
+            return True
+        interval_minutes = max(1, asset.owner.cloud.account.monitoring_interval)
+        stale_after = timedelta(minutes=max(5, interval_minutes * 3))
+        current_time = current_time or timezone.now()
+        return state.last_checked_at < current_time - stale_after
+
+    @property
+    def monitoring_stale(self):
+        """Whether the worker has missed several expected check intervals."""
+        return self._monitoring_state_stale(self, self.monitoring_state)
+
+    @property
     def status(self):
         """
         Gets the latest status from the asset status logs.
@@ -139,6 +167,18 @@ class UtilAsset(TimeStampedModel):
 
         try:
             if self.monitoring == self.Monitoring.ACTIVE:
+                monitoring_state = self.monitoring_state
+                if monitoring_state:
+                    if (
+                        monitoring_state.last_error_status
+                        or self.monitoring_stale
+                        or not monitoring_state.last_status
+                    ):
+                        self._cached_status = "unknown"
+                        return "unknown"
+                    self._cached_status = monitoring_state.last_status
+                    return monitoring_state.last_status
+
                 # Query the most recent log entry for this asset
                 latest_log = (
                     AssetStatusLog.objects
@@ -150,7 +190,7 @@ class UtilAsset(TimeStampedModel):
                 if latest_log:
                     latest_status = latest_log.status
                     # Filter out error statuses
-                    if latest_status not in ['error', 'invalid_access_token']:
+                    if latest_status not in NON_ALERTING_STATUSES:
                         self._cached_status = latest_status
                         return latest_status
 
@@ -191,8 +231,15 @@ class UtilAsset(TimeStampedModel):
             )
 
             status_map = {}
+            current_time = timezone.now()
+            states = {
+                state.asset_key: state
+                for state in AssetMonitoringState.objects.filter(
+                    asset_key__in=[asset.key for asset in active_assets]
+                )
+            }
             for log in latest_logs:
-                if log.status not in ['error', 'invalid_access_token']:
+                if log.status not in NON_ALERTING_STATUSES:
                     status_map[log.asset_key] = log.status
                 else:
                     status_map[log.asset_key] = "unknown"
@@ -201,6 +248,17 @@ class UtilAsset(TimeStampedModel):
             for asset in active_assets:
                 if asset.key not in status_map:
                     status_map[asset.key] = "unknown"
+
+                state = states.get(asset.key)
+                if state:
+                    if (
+                        state.last_error_status
+                        or cls._monitoring_state_stale(asset, state, current_time)
+                        or not state.last_status
+                    ):
+                        status_map[asset.key] = "unknown"
+                    else:
+                        status_map[asset.key] = state.last_status
 
             # Cache statuses on asset instances
             for asset in active_assets:
@@ -217,6 +275,12 @@ class UtilAsset(TimeStampedModel):
         Override save method to keep the status-check schedule in sync with
         the asset.
         """
+        # Provider inventory payloads are persisted in this model. Sanitize at
+        # the boundary so a provider-specific sync path cannot accidentally
+        # retain credentials or secret-like configuration values.
+        if self.metadata is not None:
+            self.metadata = redact_sensitive_metadata(self.metadata)
+
         is_new = self._state.adding
         monitoring_changed = False
 
@@ -261,6 +325,7 @@ class UtilAsset(TimeStampedModel):
         asset's monitoring data before deleting.
         """
         schedules.asset_schedule_delete(self)
+        AssetMonitoringState.objects.filter(asset_key=self.key).delete()
         AssetStatusLog.objects.filter(asset_key=self.key).delete()
         AssetStatusEmail.objects.filter(asset_key=self.key).delete()
         super().delete(*args, **kwargs)
@@ -292,7 +357,7 @@ class UtilAsset(TimeStampedModel):
         logs = (
             AssetStatusLog.objects
             .filter(asset_key=self.key, timestamp__gte=start_date)
-            .exclude(status__in=['error', 'invalid_access_token'])
+            .exclude(status__in=NON_ALERTING_STATUSES)
             .order_by('-timestamp')[:max_items]
         )
 

@@ -1,9 +1,14 @@
-from django.core.exceptions import ValidationError
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import (
+    CloudInventoryTransientError,
+    CloudValidationTransientError,
+    CoreCloud,
+    require_inventory_list,
+    validate_provider_response,
+)
 from apps.console.utils.models import UtilCloud, UtilAsset
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 
 class CoreVultrAccount(UtilCloud):
@@ -21,18 +26,21 @@ class CoreVultrAccount(UtilCloud):
             'Authorization': f'Bearer {self.access_token}',
             'Content-Type': 'application/json'
         }
-        response = requests.get('https://api.vultr.com/v2/account', headers=headers, timeout=10)
-        if response.status_code == 200:
-            return True
-        else:
-            error_message = response.json().get('error', 'Unknown error occurred')
-            raise ValidationError(f"Vultr API validation failed: {error_message}")
+        try:
+            response = requests.get('https://api.vultr.com/v2/account', headers=headers, timeout=10)
+            return validate_provider_response(response, 'Vultr')
+        except CloudValidationTransientError:
+            raise
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'Vultr validation temporarily unavailable'
+            ) from error
 
     def sync_assets(self):
         self.sync_servers()
         # self.sync_databases()
         self.sync_volumes()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint, params=None):
@@ -41,20 +49,39 @@ class CoreVultrAccount(UtilCloud):
             'Content-Type': 'application/json'
         }
         url = f'https://api.vultr.com/v2/{endpoint}'
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
         return response.json()
 
     def _paginate_api_call(self, endpoint):
         all_items = []
         cursor = None
+        visited_cursors = set()
         while True:
+            if cursor in visited_cursors or len(visited_cursors) >= 10000:
+                raise CloudInventoryTransientError(
+                    'Vultr returned an invalid pagination sequence'
+                )
+            if cursor:
+                visited_cursors.add(cursor)
             params = {'per_page': 100}
             if cursor:
                 params['cursor'] = cursor
             data = self._make_api_call(endpoint, params)
-            all_items.extend(data.get(endpoint, []))
-            cursor = data.get('meta', {}).get('links', {}).get('next')
+            all_items.extend(require_inventory_list(data, [endpoint], 'Vultr'))
+
+            meta = data.get('meta')
+            links = meta.get('links') if isinstance(meta, dict) else None
+            if not isinstance(links, dict):
+                raise CloudInventoryTransientError(
+                    'Vultr returned an incomplete pagination response'
+                )
+            next_cursor = links.get('next')
+            if next_cursor is not None and not isinstance(next_cursor, str):
+                raise CloudInventoryTransientError(
+                    'Vultr returned an invalid pagination cursor'
+                )
+            cursor = next_cursor
             if not cursor:
                 break
         return all_items

@@ -1,5 +1,7 @@
 import requests
 
+from apps.monitoring.checks.base import REQUEST_TIMEOUT_SECONDS, classify_http_error
+
 
 def check_vultr_server_status(unique_id, access_token):
     """Check Vultr server status"""
@@ -10,14 +12,13 @@ def check_vultr_server_status(unique_id, access_token):
     }
 
     try:
-        response = requests.get(api_url, headers=headers)
+        response = requests.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         data = response.json()
         current_status = data['instance']['power_status']
         return current_status, data
     except requests.exceptions.RequestException as e:
-        error_status = 'not_found' if e.response.status_code == 404 else 'invalid_access_token' if e.response.status_code == 401 else 'error'
-        return error_status, str(e)
+        return classify_http_error(e), str(e)
 
 
 def check_vultr_volume_status(unique_id, access_token):
@@ -29,11 +30,10 @@ def check_vultr_volume_status(unique_id, access_token):
     }
 
     try:
-        response = requests.get(api_url, headers=headers)
+        response = requests.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         data = response.json()
         current_status = data['block']['status']
         return current_status, data
     except requests.exceptions.RequestException as e:
-        error_status = 'not_found' if e.response.status_code == 404 else 'invalid_access_token' if e.response.status_code == 401 else 'error'
-        return error_status, str(e)
+        return classify_http_error(e), str(e)

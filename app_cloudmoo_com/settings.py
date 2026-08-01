@@ -10,7 +10,7 @@ See .env.example for a documented list of all variables.
 """
 import json
 import os
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from celery.schedules import crontab
 from dotenv import dotenv_values
@@ -296,20 +296,27 @@ REGISTRATION_OPEN = env_bool("REGISTRATION_OPEN", default=True)
 # 4. docker-compose default (internal rabbitmq service)
 # ---------------------------------------------------------------------------
 if config.get("RABBITMQ_HOST"):
+    broker_user = quote(str(config.get("RABBITMQ_USER", "cloudmoo")), safe="")
+    broker_password = quote(str(config.get("RABBITMQ_PASSWORD", "cloudmoo")), safe="")
+    broker_vhost = quote(str(config.get("RABBITMQ_VHOST", "/")), safe="")
     CELERY_BROKER_URL = (
-        f"amqp://{config.get('RABBITMQ_USER', 'guest')}:{config.get('RABBITMQ_PASSWORD', 'guest')}"
+        f"amqp://{broker_user}:{broker_password}"
         f"@{config['RABBITMQ_HOST']}:{config.get('RABBITMQ_PORT', '5672')}"
-        f"/{config.get('RABBITMQ_VHOST', '')}"
+        f"/{broker_vhost}"
     )
 else:
     CELERY_BROKER_URL = (
         config.get("CELERY_BROKER_URL")
         or config.get("CLOUDAMQP_URL")
-        or "amqp://guest:guest@rabbitmq:5672//"
+        or "amqp://cloudmoo:cloudmoo@rabbitmq:5672/%2F"
     )
 
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
+    "cloudmoo-retry-status-emails": {
+        "task": "cloudmoo.retry_pending_status_emails",
+        "schedule": crontab(minute="*"),
+    },
     "cloudmoo-prune-status-logs": {
         "task": "cloudmoo.prune_status_logs",
         "schedule": crontab(hour=3, minute=17),

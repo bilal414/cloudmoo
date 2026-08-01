@@ -54,7 +54,7 @@ class HetznerConnectForm(forms.Form):
         # Validate token with Hetzner API
         headers = {'Authorization': f'Bearer {access_token}'}
         try:
-            response = requests.get('https://api.hetzner.cloud/v1/servers', headers=headers)
+            response = requests.get('https://api.hetzner.cloud/v1/servers', headers=headers, timeout=10)
             if response.status_code != 200:
                 raise ValidationError("Invalid Hetzner API token. Please check and try again.")
         except requests.RequestException:

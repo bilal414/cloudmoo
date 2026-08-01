@@ -137,6 +137,10 @@ retention. The webhook `/api/v1/webhook/cloud/sync_assets/` (header
 `X-API-KEY: <CLOUDMOO_API_KEY>`) still exists for triggering a cloud sync
 from external systems.
 
+`/healthz/` is a cheap process liveness probe. Deployments should use
+`/readyz/`, which also verifies that PostgreSQL is reachable before routing
+traffic to the web process.
+
 ## Deployment
 
 ### VPS (one-liner installer)

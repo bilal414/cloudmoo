@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.contrib.auth.models import User
 from unittest.mock import patch, Mock
-from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import CloudValidationTransientError, CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.linode.models import CoreLinodeAccount
 from apps.console.account.models import CoreAccount
 from tests.utils import CloudTestMixin, TestAccountManager, skip_if_no_real_credentials
@@ -62,8 +62,7 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token=account_config['access_token']
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        self.assertFalse(linode_account.validate())
 
     @patch('requests.get')
     def test_forbidden_access_connection(self, mock_get):
@@ -77,8 +76,7 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token="restricted_token"
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        self.assertFalse(linode_account.validate())
 
     @patch('requests.get')
     def test_rate_limited_connection(self, mock_get):
@@ -92,8 +90,8 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token="valid_token"
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            linode_account.validate()
 
     @patch('requests.get')
     def test_server_error_connection(self, mock_get):
@@ -107,8 +105,8 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token="some_token"
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            linode_account.validate()
 
     @patch('requests.get')
     def test_connection_timeout(self, mock_get):
@@ -120,8 +118,8 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token="some_token"
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            linode_account.validate()
 
     @patch('requests.get')
     def test_empty_token_connection(self, mock_get):
@@ -135,8 +133,7 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token=""
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        self.assertFalse(linode_account.validate())
 
     def test_access_token_property(self):
         account_config = self.get_test_account('linode', 'valid')
@@ -179,8 +176,8 @@ class LinodeConnectionTestCase(CloudTestMixin, TestCase):
             access_token="valid_token"
         )
 
-        result = linode_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            linode_account.validate()
 
     @patch('requests.get')
     def test_account_suspended_connection(self, mock_get):

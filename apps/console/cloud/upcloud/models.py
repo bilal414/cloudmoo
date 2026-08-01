@@ -1,8 +1,13 @@
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import (
+    CloudValidationTransientError,
+    CoreCloud,
+    require_inventory_list,
+    validate_provider_response,
+)
 from apps.console.utils.models import UtilCloud, UtilAsset
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 class CoreUpCloudAccount(UtilCloud):
     cloud = models.ForeignKey(CoreCloud, on_delete=models.CASCADE, related_name="upcloud")
@@ -26,12 +31,13 @@ class CoreUpCloudAccount(UtilCloud):
                 'Content-Type': 'application/json'
             }
             response = requests.get('https://api.upcloud.com/1.3/account', headers=headers, timeout=10)
-            if response.status_code != 200:
-                return False
-            response.json()
-            return True
-        except Exception:
-            return False
+            return validate_provider_response(response, 'UpCloud')
+        except CloudValidationTransientError:
+            raise
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'UpCloud validation temporarily unavailable'
+            ) from error
 
     def _get_auth_token(self):
         import base64
@@ -40,7 +46,7 @@ class CoreUpCloudAccount(UtilCloud):
     def sync_assets(self):
         self.sync_servers()
         self.sync_volumes()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint):
@@ -49,13 +55,13 @@ class CoreUpCloudAccount(UtilCloud):
             'Content-Type': 'application/json'
         }
         url = f'https://api.upcloud.com/1.3/{endpoint}'
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         return response.json()
 
     def sync_servers(self):
         data = self._make_api_call('server')
-        servers = data.get('servers', {}).get('server', [])
+        servers = require_inventory_list(data, ['servers', 'server'], 'UpCloud')
 
         current_server_ids = []
         for server_data in servers:
@@ -64,7 +70,6 @@ class CoreUpCloudAccount(UtilCloud):
                 unique_id=server_data['uuid'],
                 defaults={
                     'name': server_data['title'],
-                    'monitoring': CoreUpCloudServer.Monitoring.ACTIVE,
                     'type': CoreUpCloudServer.Type.SERVER,
                     'metadata': server_data
                 }
@@ -77,7 +82,7 @@ class CoreUpCloudAccount(UtilCloud):
 
     def sync_volumes(self):
         data = self._make_api_call('storage/normal')
-        volumes = data.get('storages', {}).get('storage', [])
+        volumes = require_inventory_list(data, ['storages', 'storage'], 'UpCloud')
 
         current_volume_ids = []
         for volume_data in volumes:
@@ -86,7 +91,6 @@ class CoreUpCloudAccount(UtilCloud):
                 unique_id=volume_data['uuid'],
                 defaults={
                     'name': volume_data['title'],
-                    'monitoring': CoreUpCloudVolume.Monitoring.ACTIVE,
                     'type': CoreUpCloudVolume.Type.VOLUME,
                     'metadata': volume_data
                 }
