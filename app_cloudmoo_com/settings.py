@@ -2,7 +2,7 @@
 Django settings for the CloudMoo project.
 
 Configuration is resolved in this order:
-1. AWS_SECRETS environment variable (JSON blob, useful on AWS)
+1. CLOUDMOO_SECRETS environment variable (JSON blob)
 2. Environment variables
 3. .env file in the project root (local development)
 
@@ -10,14 +10,17 @@ See .env.example for a documented list of all variables.
 """
 import json
 import os
+from urllib.parse import urlparse
+
+from celery.schedules import crontab
 from dotenv import dotenv_values
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 ROOT_PATH = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
-if "AWS_SECRETS" in os.environ:
-    config = json.loads(os.environ.get("AWS_SECRETS"))
+if "CLOUDMOO_SECRETS" in os.environ:
+    config = json.loads(os.environ.get("CLOUDMOO_SECRETS"))
 else:
     config = {
         **dotenv_values(".env"),  # load shared development variables
@@ -58,6 +61,8 @@ if HTTPS_ENABLED:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+    # Trust the proxy's protocol header (needed behind PaaS load balancers)
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Application definition
 
@@ -72,6 +77,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "django.contrib.humanize",
+    "django_celery_beat",
     "apps",
 ]
 
@@ -156,6 +162,24 @@ DATABASES = {
         "PORT": config.get("DB_PORT", "5432"),
     },
 }
+
+# Heroku/Render provide a single DATABASE_URL; when present it overrides the
+# individual DB_* settings above. Optional DB_SSLMODE (e.g. "require") is
+# passed through to the PostgreSQL backend.
+DATABASE_URL = config.get("DATABASE_URL")
+if DATABASE_URL:
+    _db_url = urlparse(DATABASE_URL)
+    if _db_url.scheme in ("postgres", "postgresql"):
+        DATABASES["default"].update({
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _db_url.path.lstrip("/"),
+            "USER": _db_url.username or "",
+            "PASSWORD": _db_url.password or "",
+            "HOST": _db_url.hostname or "",
+            "PORT": str(_db_url.port or 5432),
+        })
+        if config.get("DB_SSLMODE"):
+            DATABASES["default"]["OPTIONS"] = {"sslmode": config["DB_SSLMODE"]}
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -264,25 +288,35 @@ CONSOLE_URL = "/console"
 REGISTRATION_OPEN = env_bool("REGISTRATION_OPEN", default=True)
 
 # ---------------------------------------------------------------------------
-# AWS (monitoring engine)
-# Credentials are optional: when AWS_ACCESS_KEY / AWS_SECRET_ACCESS_KEY are
-# empty, boto3 falls back to the default credential chain (IAM role, instance
-# profile, ~/.aws/credentials, ...).
+# Celery (monitoring engine task queue)
+# Broker resolution order:
+# 1. RABBITMQ_HOST — assemble the URL from the RABBITMQ_* parts
+# 2. CELERY_BROKER_URL — explicit broker URL
+# 3. CLOUDAMQP_URL — provided automatically by the CloudAMQP Heroku add-on
+# 4. docker-compose default (internal rabbitmq service)
 # ---------------------------------------------------------------------------
-AWS_ACCESS_KEY = config.get("AWS_ACCESS_KEY", "")
-AWS_SECRET_ACCESS_KEY = config.get("AWS_SECRET_ACCESS_KEY", "")
-AWS_REGION = config.get("AWS_REGION", "us-east-1")
-AWS_SCHEDULER_ROLE = config.get("AWS_SCHEDULER_ROLE", "")
-AWS_LAMBDA_ASSET_STATUS = config.get("AWS_LAMBDA_ASSET_STATUS", "")
-AWS_LAMBDA_CLOUD_SYNC_ASSETS = config.get("AWS_LAMBDA_CLOUD_SYNC_ASSETS", "")
-AWS_LAMBDA_EMAIL_ASSET_STATUS_CHANGE = config.get("AWS_LAMBDA_EMAIL_ASSET_STATUS_CHANGE", "")
+if config.get("RABBITMQ_HOST"):
+    CELERY_BROKER_URL = (
+        f"amqp://{config.get('RABBITMQ_USER', 'guest')}:{config.get('RABBITMQ_PASSWORD', 'guest')}"
+        f"@{config['RABBITMQ_HOST']}:{config.get('RABBITMQ_PORT', '5672')}"
+        f"/{config.get('RABBITMQ_VHOST', '')}"
+    )
+else:
+    CELERY_BROKER_URL = (
+        config.get("CELERY_BROKER_URL")
+        or config.get("CLOUDAMQP_URL")
+        or "amqp://guest:guest@rabbitmq:5672//"
+    )
 
-# DynamoDB table names used by the monitoring engine
-AWS_DYNAMODB_ASSETS_TABLE = config.get("AWS_DYNAMODB_ASSETS_TABLE", "cloudmoo-assets")
-AWS_DYNAMODB_ASSET_LOGS_TABLE = config.get("AWS_DYNAMODB_ASSET_LOGS_TABLE", "cloudmoo-asset-logs")
-AWS_DYNAMODB_ASSET_EMAILS_TABLE = config.get("AWS_DYNAMODB_ASSET_EMAILS_TABLE", "cloudmoo-asset-emails")
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULE = {
+    "cloudmoo-prune-status-logs": {
+        "task": "cloudmoo.prune_status_logs",
+        "schedule": crontab(hour=3, minute=17),
+    },
+}
 
-# Shared API key for internal webhook calls (Lambda -> Django)
+# Shared secret for the external sync webhook (X-API-KEY header)
 CLOUDMOO_API_KEY = config.get("CLOUDMOO_API_KEY", "")
 
 # Google reCAPTCHA (optional — skipped when not configured)

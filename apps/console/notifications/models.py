@@ -1,150 +1,88 @@
-from apps.console.utils.aws import aws_resource
-import json
-from decimal import Decimal
 from datetime import datetime, timezone
-from django.conf import settings
-from boto3.dynamodb.conditions import Key
+
+from apps.monitoring.models import AssetStatusEmail
 
 
 class NotificationLog:
-    """Model for handling notification logs from DynamoDB"""
+    """Wrapper around an AssetStatusEmail row for the notifications console."""
 
-    def __init__(self, data):
-        self.asset_key = data.get('asset_key')
-        self.timestamp = data.get('timestamp')
-        self.timestamp_iso = data.get('timestamp_iso')
-        self.asset_id = data.get('asset_id')
-        self.provider = data.get('provider')
-        self.asset_type = data.get('asset_type')
-        self.recipient = data.get('recipient')
-        self.text_body = data.get('text_body')
-        self.html_body = data.get('html_body')
-        self.metadata = data.get('metadata', {})
+    def __init__(self, email):
+        self.asset_key = email.asset_key
+        self.timestamp = email.timestamp
+        self.asset_id = email.asset_id
+        self.provider = email.provider
+        self.asset_type = email.asset_type
+        self.recipient = email.recipient
+        self.text_body = email.text_body
+        self.html_body = email.html_body
+        self.subject = email.subject or f"Status Change Alert for {email.provider} - {email.asset_type}"
+        self.status_previous = email.status_previous
+        self.status_current = email.status_current
 
     @classmethod
-    def get_dynamodb_table(cls):
-        """Get DynamoDB table connection"""
-        dynamodb = aws_resource('dynamodb')
-        return dynamodb.Table(settings.AWS_DYNAMODB_ASSET_EMAILS_TABLE)
+    def _apply_filters(cls, queryset, filters):
+        """Apply the optional search filters to an AssetStatusEmail queryset."""
+        if not filters:
+            return queryset
+
+        if filters.get('email'):
+            queryset = queryset.filter(recipient__icontains=filters['email'])
+
+        if filters.get('provider'):
+            queryset = queryset.filter(provider=filters['provider'])
+
+        if filters.get('asset_type'):
+            queryset = queryset.filter(asset_type=filters['asset_type'])
+
+        # Date range filtering
+        if filters.get('date_from'):
+            date_from = datetime.strptime(filters['date_from'], '%Y-%m-%d')
+            date_from = date_from.replace(tzinfo=timezone.utc)
+            queryset = queryset.filter(timestamp__gte=date_from)
+
+        if filters.get('date_to'):
+            date_to = datetime.strptime(filters['date_to'], '%Y-%m-%d')
+            # Set to end of day
+            date_to = date_to.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            queryset = queryset.filter(timestamp__lte=date_to)
+
+        return queryset
 
     @classmethod
     def get_logs_for_account(cls, account_id, filters=None, limit=50):
         """Get notification logs for a specific account ID with optional filters"""
         try:
-            table = cls.get_dynamodb_table()
-            
-            # Start with basic account filter
-            filter_expression = Key('asset_key').begins_with(f'cm__{account_id}__')
-            
-            # Add additional filters if provided
-            if filters:
-                from boto3.dynamodb.conditions import Attr
-                
-                if filters.get('email'):
-                    filter_expression = filter_expression & Attr('recipient').contains(filters['email'])
-                
-                if filters.get('provider'):
-                    filter_expression = filter_expression & Attr('provider').eq(filters['provider'])
-                
-                if filters.get('asset_type'):
-                    filter_expression = filter_expression & Attr('asset_type').eq(filters['asset_type'])
-                
-                # Date range filtering
-                if filters.get('date_from') or filters.get('date_to'):
-                    from datetime import datetime, timezone
-                    import calendar
-                    
-                    if filters.get('date_from'):
-                        date_from = datetime.strptime(filters['date_from'], '%Y-%m-%d')
-                        date_from = date_from.replace(tzinfo=timezone.utc)
-                        timestamp_from = calendar.timegm(date_from.timetuple())
-                        filter_expression = filter_expression & Attr('timestamp').gte(timestamp_from)
-                    
-                    if filters.get('date_to'):
-                        date_to = datetime.strptime(filters['date_to'], '%Y-%m-%d')
-                        # Set to end of day
-                        date_to = date_to.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
-                        timestamp_to = calendar.timegm(date_to.timetuple())
-                        filter_expression = filter_expression & Attr('timestamp').lte(timestamp_to)
-            
-            # Scan for items
-            response = table.scan(
-                FilterExpression=filter_expression,
-                Limit=limit
-            )
-            
-            logs = []
-            for item in response.get('Items', []):
-                logs.append(cls(item))
-            
-            # Sort by timestamp descending (most recent first)
-            logs.sort(key=lambda x: x.timestamp, reverse=True)
-            
-            return logs
-            
+            queryset = AssetStatusEmail.objects.filter(account_id=account_id)
+            queryset = cls._apply_filters(queryset, filters)
+            queryset = queryset.order_by('-timestamp')[:limit]
+            return [cls(email) for email in queryset]
         except Exception as e:
             print(f"Error fetching notification logs: {str(e)}")
             return []
 
     @classmethod
     def get_logs_for_account_paginated(cls, account_id, filters=None, last_evaluated_key=None, limit=50):
-        """Get notification logs for a specific account ID with pagination and filters"""
+        """
+        Get notification logs for a specific account ID with pagination and filters.
+
+        Returns a (logs, next_key) tuple; ``next_key`` is an opaque offset
+        token that can be passed back as ``last_evaluated_key`` to fetch the
+        next page (None when there are no more results).
+        """
         try:
-            table = cls.get_dynamodb_table()
-            
-            # Start with basic account filter
-            filter_expression = Key('asset_key').begins_with(f'cm__{account_id}__')
-            
-            # Add additional filters if provided
-            if filters:
-                from boto3.dynamodb.conditions import Attr
-                
-                if filters.get('email'):
-                    filter_expression = filter_expression & Attr('recipient').contains(filters['email'])
-                
-                if filters.get('provider'):
-                    filter_expression = filter_expression & Attr('provider').eq(filters['provider'])
-                
-                if filters.get('asset_type'):
-                    filter_expression = filter_expression & Attr('asset_type').eq(filters['asset_type'])
-                
-                # Date range filtering
-                if filters.get('date_from') or filters.get('date_to'):
-                    from datetime import datetime, timezone
-                    import calendar
-                    
-                    if filters.get('date_from'):
-                        date_from = datetime.strptime(filters['date_from'], '%Y-%m-%d')
-                        date_from = date_from.replace(tzinfo=timezone.utc)
-                        timestamp_from = calendar.timegm(date_from.timetuple())
-                        filter_expression = filter_expression & Attr('timestamp').gte(timestamp_from)
-                    
-                    if filters.get('date_to'):
-                        date_to = datetime.strptime(filters['date_to'], '%Y-%m-%d')
-                        # Set to end of day
-                        date_to = date_to.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
-                        timestamp_to = calendar.timegm(date_to.timetuple())
-                        filter_expression = filter_expression & Attr('timestamp').lte(timestamp_to)
-            
-            scan_kwargs = {
-                'FilterExpression': filter_expression,
-                'Limit': limit
-            }
-            
-            if last_evaluated_key:
-                scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
-            
-            response = table.scan(**scan_kwargs)
-            
-            logs = []
-            for item in response.get('Items', []):
-                logs.append(cls(item))
-            
-            # Sort by timestamp descending (most recent first)
-            logs.sort(key=lambda x: x.timestamp, reverse=True)
-            
-            return logs, response.get('LastEvaluatedKey')
-            
+            queryset = AssetStatusEmail.objects.filter(account_id=account_id)
+            queryset = cls._apply_filters(queryset, filters)
+            queryset = queryset.order_by('-timestamp')
+
+            offset = int(last_evaluated_key) if last_evaluated_key else 0
+            emails = list(queryset[offset:offset + limit + 1])
+
+            has_more = len(emails) > limit
+            logs = [cls(email) for email in emails[:limit]]
+            next_key = str(offset + limit) if has_more else None
+
+            return logs, next_key
+
         except Exception as e:
             print(f"Error fetching notification logs: {str(e)}")
             return [], None
@@ -152,27 +90,22 @@ class NotificationLog:
     @property
     def formatted_timestamp(self):
         """Get formatted timestamp for display"""
-        if self.timestamp_iso:
+        if self.timestamp:
             try:
-                dt = datetime.fromisoformat(self.timestamp_iso.replace('Z', '+00:00'))
-                return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
-            except:
+                return self.timestamp.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            except (ValueError, TypeError):
                 pass
         return 'Unknown'
 
     @property
     def status_change(self):
-        """Get status change information from metadata"""
-        if self.metadata and 'status_change' in self.metadata:
-            return self.metadata['status_change']
+        """Get status change information"""
+        if self.status_previous or self.status_current:
+            return {
+                'previous': self.status_previous,
+                'current': self.status_current,
+            }
         return None
-
-    @property
-    def subject(self):
-        """Get email subject from metadata"""
-        if self.metadata and 'subject' in self.metadata:
-            return self.metadata['subject']
-        return f"Status Change Alert for {self.provider} - {self.asset_type}"
 
     def __str__(self):
         return f"NotificationLog({self.asset_key}, {self.formatted_timestamp})"

@@ -1,10 +1,12 @@
 from django.core.management.base import BaseCommand
+from django_celery_beat.models import PeriodicTask
+
 from apps.console.cloud.models import CoreCloud
-import time
+from apps.monitoring.schedules import cloud_schedule_create
 
 
 class Command(BaseCommand):
-    help = 'Create AWS EventBridge schedules for active clouds and monitored assets'
+    help = 'Create monitoring schedules for active clouds and monitored assets'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -24,7 +26,7 @@ class Command(BaseCommand):
 
         if not confirm:
             self.stdout.write(self.style.WARNING(
-                'This command will create AWS EventBridge schedules for all active clouds and monitored assets.\n'
+                'This command will create monitoring schedules for all active clouds and monitored assets.\n'
                 'To confirm, run the command with --confirm flag.'
             ))
             return
@@ -49,9 +51,9 @@ class Command(BaseCommand):
                 # Only create schedules for ACTIVE clouds
                 if cloud.status == CoreCloud.Status.ACTIVE:
                     # Create cloud schedule if it doesn't exist
-                    if not cloud.aws_schedule_arn:
+                    if not PeriodicTask.objects.filter(name=f'cloud-{cloud.uuid}').exists():
                         self.stdout.write(f'  Creating cloud schedule for cloud {cloud.id}...')
-                        cloud.aws_schedule_create()
+                        cloud_schedule_create(cloud)
                         cloud_schedules_created += 1
                         self.stdout.write(self.style.SUCCESS(f'  Created cloud schedule for {cloud.name}'))
                     else:
@@ -64,9 +66,6 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(f'  Skipping cloud {cloud.id} - not in ACTIVE status'))
 
                 clouds_processed += 1
-
-                # Small delay to prevent API throttling
-                time.sleep(0.5)
 
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f'Error processing cloud {cloud.id}: {str(e)}'))

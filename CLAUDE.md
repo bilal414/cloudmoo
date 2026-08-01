@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CloudMoo is an open-source, self-hosted multi-cloud infrastructure monitoring platform that tracks assets (servers, volumes, databases) across cloud providers including DigitalOcean, AWS, Vultr, Hetzner, Linode, and UpCloud. The application uses Django with PostgreSQL and integrates with AWS services for the monitoring engine.
+CloudMoo is an open-source, self-hosted multi-cloud infrastructure monitoring platform that tracks assets (servers, volumes, databases) across cloud providers including DigitalOcean, AWS, Vultr, Hetzner, Linode, and UpCloud. The application uses Django with PostgreSQL and a built-in Celery-based monitoring engine (Celery Beat + worker + RabbitMQ).
 
 ## Essential Commands
 
@@ -33,16 +33,22 @@ python manage.py collectstatic
 
 ### Custom Management Commands
 ```bash
-# Create AWS EventBridge schedules for all cloud assets
+# Create database scheduler entries (PeriodicTasks) for all cloud assets
 python manage.py create_all_cloud_schedules --confirm
 
-# Remove all AWS EventBridge schedules
+# Remove all database scheduler entries
 python manage.py remove_all_cloud_schedules --confirm
+```
+
+### Celery (monitoring engine)
+```bash
+celery -A app_cloudmoo_com worker --loglevel=info
+celery -A app_cloudmoo_com beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
 
 ### Docker Development
 ```bash
-docker compose up --build   # starts PostgreSQL + the web app
+docker compose up --build   # starts PostgreSQL, RabbitMQ, and the web/worker/beat services
 ```
 
 ## Architecture Overview
@@ -61,20 +67,24 @@ docker compose up --build   # starts PostgreSQL + the web app
 
 ### Configuration
 - All configuration comes from environment variables / `.env` (see `.env.example`),
-  or a JSON blob in the `AWS_SECRETS` env var.
+  or a JSON blob in the `CLOUDMOO_SECRETS` env var.
 - Optional services are off unless configured: Sentry (`SENTRY_DSN`),
   reCAPTCHA (`RECAPTCHA_*`), SMTP (`EMAIL_BACKEND` + `SMTP_*`).
 - `REGISTRATION_OPEN=false` disables public sign-ups.
 
-### AWS Integration Architecture
-The monitoring engine relies on AWS services:
-- **EventBridge Scheduler**: Triggers asset monitoring on configurable intervals
-- **Lambda Functions**: Execute status checks and send notifications (`_lambda/` directory)
-- **DynamoDB**: Stores asset status logs and 30-day timeline data
-  (table names configurable via `AWS_DYNAMODB_*_TABLE`)
-- Platform boto3 calls go through `apps/console/utils/aws.py`
-  (`aws_client` / `aws_resource`), which uses explicit credentials when set
-  and the default credential chain (IAM role) otherwise.
+### Monitoring Engine
+The monitoring engine is built in — no external cloud services required:
+- **Celery beat** (`DatabaseScheduler` from django-celery-beat): enqueues one
+  `PeriodicTask` per monitored asset (`cloudmoo.check_asset_status`) and one
+  per connected cloud (`cloudmoo.sync_cloud_assets`) onto RabbitMQ
+- **Celery worker**: executes the tasks — checks call provider APIs directly,
+  write `AssetStatusLog`/`AssetStatusEmail` rows (PostgreSQL tables in
+  `apps/monitoring/models.py`), and send alert emails through Django's
+  `EMAIL_BACKEND`; `cloudmoo.prune_status_logs` prunes old logs daily,
+  honoring each plan's `log_retention_days`
+- **`apps/monitoring/`** package: `checks/` (per-provider status checks),
+  `metadata.py`, `timeline.py`, `email.py`, `tasks.py`, `schedules.py`,
+  `models.py`
 
 ### Email
 Transactional email goes through Django's `EMAIL_BACKEND` (SMTP by default in
@@ -86,6 +96,10 @@ Each cloud provider has dedicated modules in `apps/console/cloud/[provider]/` wi
 - Asset discovery and synchronization
 - Status monitoring
 - Provider-specific API interactions
+
+Connecting an AWS account as a monitored provider uses that account's own
+credentials (`apps/console/cloud/aws/`); no platform-level AWS credentials or
+services are needed to run CloudMoo.
 
 ## Key Configuration
 
@@ -127,9 +141,9 @@ monitoring intervals). Self-hosted instances use the single default
 ## Monitoring System
 
 ### Asset Status Pipeline
-1. **Scheduling**: AWS EventBridge triggers Lambda functions on plan intervals
-2. **Checking**: Lambda functions query cloud provider APIs for asset status
-3. **Storage**: Status data stored in DynamoDB with 30-day retention
+1. **Scheduling**: Celery beat (DatabaseScheduler) enqueues periodic tasks on plan intervals
+2. **Checking**: The Celery worker queries cloud provider APIs for asset status
+3. **Storage**: Status data stored in PostgreSQL with per-plan retention
 4. **Notification**: Status changes trigger email notifications
 
 ### Status Timeline
@@ -150,10 +164,10 @@ When adding new cloud providers, follow the established pattern:
 1. Create provider module in `apps/console/cloud/[provider]/`
 2. Implement standardized asset discovery methods
 3. Add provider configuration to `CoreCloudServiceProvider` model
-4. Create corresponding Lambda functions for monitoring
+4. Add a `check_<provider>_<asset_type>_status` function in `apps/monitoring/checks/` for monitoring
 
 ### Database Queries
 The application uses select_related and prefetch_related extensively for performance. When modifying queries, maintain this pattern to avoid N+1 query problems.
 
-### Lambda Deployment
-Lambda functions in `_lambda/` directory are deployed separately from the main application. Changes require updating both the function code and any corresponding IAM policies.
+### Provider Status Checks
+Provider status checks live in `apps/monitoring/checks/` (ported from the retired AWS Lambda implementation). New providers need a `check_<provider>_<asset_type>_status` function there plus a sync implementation in `apps/console/cloud/<provider>/`.

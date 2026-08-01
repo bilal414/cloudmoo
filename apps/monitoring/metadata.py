@@ -1,26 +1,16 @@
-import json
-from decimal import Decimal
-from datetime import datetime, timezone
-import importlib
-from base import (
-    get_previous_status,
-    store_status,
-    calculate_status_timeline,
-    trigger_email_notification
-)
+"""
+Metadata filtering and comparison for asset status checks.
 
+Ported from the cloudMooCheckAssetStatus Lambda. Previous metadata now comes
+from PostgreSQL JSON fields, so the DynamoDB wire-format handling
+({'S': ..., 'N': ..., 'M': ..., 'L': ...}) from the original has been dropped.
+"""
+import logging
 
-class DecimalEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return str(obj)
-        return super(DecimalEncoder, self).default(obj)
+logger = logging.getLogger(__name__)
 
-
-# Define error statuses that should not trigger email notifications
-NON_ALERTING_STATUSES = ['invalid_access_token', 'error', 'not_found']
-
-# Add at the top of lambda_function.py
+# Fields worth tracking per provider/asset type, mapped to display names.
+# Only changes to these fields trigger "configuration change" notifications.
 PROVIDER_METADATA_FIELDS = {
     'digitalocean': {
         'server': {
@@ -560,33 +550,12 @@ def get_nested_value(data, path):
                 if current and isinstance(current[0], dict):
                     return normalize_list_of_dicts(current)
                 return sorted(current) if current else current
-            elif isinstance(current, dict) and 'L' in current:
-                items = [item.get('S', item.get('M', item)) for item in current['L']]
-                if items and isinstance(items[0], dict):
-                    return normalize_list_of_dicts(items)
-                return sorted(items) if items else items
             else:
                 return None
         else:
             if isinstance(current, dict):
-                # Handle DynamoDB format
-                if 'M' in current:
-                    current = current['M']
                 if isinstance(current.get(part, {}), dict):
-                    if 'S' in current[part]:
-                        current = current[part]['S']
-                    elif 'N' in current[part]:
-                        current = normalize_number(current[part]['N'])
-                    elif 'BOOL' in current[part]:
-                        current = str(current[part]['BOOL']).lower()
-                    elif 'L' in current[part]:
-                        items = [item.get('S', item.get('M', item)) for item in current[part]['L']]
-                        if items and isinstance(items[0], dict):
-                            current = normalize_list_of_dicts(items)
-                        else:
-                            current = sorted(items) if items else items
-                    else:
-                        current = current.get(part, {})
+                    current = current.get(part, {})
                 else:
                     value = current.get(part, '')
                     if isinstance(value, list):
@@ -644,105 +613,7 @@ def compare_metadata(previous_metadata, current_metadata, provider, asset_type):
                     # Handle simple value changes
                     changes.append(f"{display_name} changed from '{prev_value}' to '{curr_value}'")
         except Exception as e:
-            print(f"Error comparing field {field_path}: {str(e)}")
+            logger.error(f"Error comparing field {field_path}: {str(e)}")
             continue
 
     return changes
-
-
-def lambda_handler(event, context):
-    """Main Lambda handler function"""
-    asset_id = event.get('asset_id')
-    unique_id = event.get('unique_id')
-    access_token = event.get('access_token')
-    provider = event.get('provider')
-    asset_type = event.get('asset_type')
-    asset_key = event.get('asset_key')
-
-    if not all([asset_id, unique_id, access_token, provider, asset_type, asset_key]):
-        return {
-            'statusCode': 400,
-            'body': json.dumps('Missing required parameters')
-        }
-
-    try:
-        provider_module = importlib.import_module(provider)
-        check_status_function = getattr(provider_module, f'check_{provider}_{asset_type}_status')
-    except (ImportError, AttributeError):
-        return {
-            'statusCode': 400,
-            'body': json.dumps(f'Unsupported provider or asset type: {provider}, {asset_type}')
-        }
-
-    current_time = datetime.now(timezone.utc)
-    timestamp_iso = current_time.isoformat()
-    status_timeline = None  # Initialize status_timeline here
-    metadata_changes = None  # Initialize status_timeline here
-
-    try:
-        # Get current status from provider
-        current_status, current_metadata = check_status_function(unique_id, access_token)
-
-        # Filter the metadata to only include important fields
-        filtered_metadata = filter_metadata(current_metadata, provider, asset_type)
-
-        # Handle non-alerting status first
-        if current_status in NON_ALERTING_STATUSES:
-            store_status(asset_key, timestamp_iso, current_status, provider, asset_type,
-                         error_message=current_metadata, metadata=None)
-            return {
-                'statusCode': 500 if current_status == 'error' else 400,
-                'body': json.dumps(f'Error checking {asset_type} status: {current_metadata}')
-            }
-
-        # Get previous status data
-        previous_status_data = get_previous_status(asset_key)
-        previous_metadata = previous_status_data.get('metadata') if previous_status_data else None
-
-        if previous_metadata:
-            # Compare metadata to find changes
-            metadata_changes = compare_metadata(previous_metadata, filtered_metadata, provider, asset_type)
-
-            # Only trigger notification if there are metadata changes AND this is not the first entry
-            if metadata_changes:
-                # Store the new status with filtered metadata
-                store_status(asset_key, timestamp_iso, current_status, provider, asset_type,
-                             error_message=None, metadata=filtered_metadata, metadata_changes=metadata_changes)
-
-                status_timeline = calculate_status_timeline(asset_key)
-                trigger_email_notification(
-                    asset_key,
-                    asset_id,
-                    provider,
-                    asset_type,
-                    current_status,
-                    previous_status_data['status'] if previous_status_data else None,
-                    status_timeline,
-                    metadata_changes
-                )
-        else:
-            # Store the new status with filtered metadata
-            store_status(asset_key, timestamp_iso, current_status, provider, asset_type,
-                         error_message=None, metadata=filtered_metadata)
-
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'asset_key': asset_key,
-                'unique_id': unique_id,
-                'asset_id': asset_id,
-                'asset_type': asset_type,
-                'provider': provider,
-                'status': current_status,
-                'timestamp': timestamp_iso,
-                'metadata_changes': metadata_changes,
-                'metadata': filtered_metadata,
-                'status_timeline': status_timeline
-            }, cls=DecimalEncoder)
-        }
-
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f'Error processing request: {str(e)}')
-        }

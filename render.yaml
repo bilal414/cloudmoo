@@ -1,0 +1,196 @@
+# Render Blueprint used by the "Deploy to Render" button.
+# CloudMoo runs as independent web, worker, and scheduler processes backed by a
+# managed PostgreSQL database and a private RabbitMQ service (the Celery broker).
+#
+# Note: Render env var groups only support static values, so per-service env vars
+# below wire DB_* from the managed database and RABBITMQ_HOST from the private
+# RabbitMQ service. settings.py assembles CELERY_BROKER_URL from RABBITMQ_* when
+# CELERY_BROKER_URL itself is empty.
+
+services:
+  - type: web
+    name: cloudmoo-web
+    runtime: docker
+    region: oregon
+    plan: starter
+    numInstances: 1
+    autoDeployTrigger: off
+    healthCheckPath: /healthz/
+    preDeployCommand: python manage.py migrate --noinput
+    envVars:
+      - fromGroup: cloudmoo-common
+      - key: DB_NAME
+        fromDatabase:
+          name: cloudmoo-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: cloudmoo-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: cloudmoo-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: cloudmoo-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: cloudmoo-db
+          property: port
+      - key: CELERY_BROKER_URL
+        value: ""
+      - key: RABBITMQ_HOST
+        fromService:
+          type: pserv
+          name: cloudmoo-rabbitmq
+          property: host
+      - key: RABBITMQ_PORT
+        value: "5672"
+      - key: APP_DOMAIN
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: DJANGO_ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+  - type: worker
+    name: cloudmoo-worker
+    runtime: docker
+    region: oregon
+    plan: starter
+    numInstances: 1
+    autoDeployTrigger: off
+    maxShutdownDelaySeconds: 300
+    dockerCommand: celery -A app_cloudmoo_com worker --loglevel=info
+    envVars:
+      - fromGroup: cloudmoo-common
+      - key: DB_NAME
+        fromDatabase:
+          name: cloudmoo-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: cloudmoo-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: cloudmoo-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: cloudmoo-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: cloudmoo-db
+          property: port
+      - key: CELERY_BROKER_URL
+        value: ""
+      - key: RABBITMQ_HOST
+        fromService:
+          type: pserv
+          name: cloudmoo-rabbitmq
+          property: host
+      - key: RABBITMQ_PORT
+        value: "5672"
+      - key: APP_DOMAIN
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: DJANGO_ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+  # beat MUST stay a single instance — running more than one fires scheduled
+  # checks multiple times.
+  - type: worker
+    name: cloudmoo-beat
+    runtime: docker
+    region: oregon
+    plan: starter
+    numInstances: 1
+    autoDeployTrigger: off
+    dockerCommand: celery -A app_cloudmoo_com beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    envVars:
+      - fromGroup: cloudmoo-common
+      - key: DB_NAME
+        fromDatabase:
+          name: cloudmoo-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: cloudmoo-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: cloudmoo-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: cloudmoo-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: cloudmoo-db
+          property: port
+      - key: CELERY_BROKER_URL
+        value: ""
+      - key: RABBITMQ_HOST
+        fromService:
+          type: pserv
+          name: cloudmoo-rabbitmq
+          property: host
+      - key: RABBITMQ_PORT
+        value: "5672"
+      - key: APP_DOMAIN
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: DJANGO_ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: cloudmoo-web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+  # Private RabbitMQ (Celery broker). Uses the image's default guest/guest
+  # credentials; only reachable from the services above, never publicly.
+  - type: pserv
+    name: cloudmoo-rabbitmq
+    runtime: image
+    region: oregon
+    plan: starter
+    numInstances: 1
+    image:
+      url: docker.io/library/rabbitmq:3-management
+
+databases:
+  - name: cloudmoo-db
+    databaseName: cloudmoo
+    user: cloudmoo
+    region: oregon
+    plan: basic-256mb
+    postgresMajorVersion: "18"
+    # The app uses the private connection string, not public database access.
+    ipAllowList: []
+
+envVarGroups:
+  - name: cloudmoo-common
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SERVER
+        value: production
+      - key: APP_PROTOCOL
+        value: "https://"

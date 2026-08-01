@@ -1,10 +1,11 @@
 from django.core.management.base import BaseCommand
+
 from apps.console.cloud.models import CoreCloud
-import time
+from apps.monitoring.schedules import cloud_schedule_delete
 
 
 class Command(BaseCommand):
-    help = 'Remove all cloud schedules and asset schedules from AWS EventBridge'
+    help = 'Remove all cloud schedules and asset schedules from the monitoring engine'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -24,7 +25,7 @@ class Command(BaseCommand):
 
         if not confirm:
             self.stdout.write(self.style.WARNING(
-                'This command will remove ALL cloud and asset schedules from AWS EventBridge.\n'
+                'This command will remove ALL cloud and asset monitoring schedules.\n'
                 'To confirm, run the command with --confirm flag.'
             ))
             return
@@ -52,14 +53,11 @@ class Command(BaseCommand):
 
                 # Delete cloud's own schedule
                 self.stdout.write(f'  Deleting cloud schedule for cloud {cloud.id}...')
-                cloud.aws_schedule_delete()
+                cloud_schedule_delete(cloud)
 
                 cloud_schedules_deleted += 1
                 clouds_processed += 1
                 self.stdout.write(self.style.SUCCESS(f'  Successfully removed schedules for cloud: {cloud.name}'))
-
-                # Small delay to prevent API throttling
-                time.sleep(0.5)
 
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f'Error processing cloud {cloud.id}: {str(e)}'))

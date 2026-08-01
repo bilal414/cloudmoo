@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CloudMoo — Open-source multi-cloud infrastructure monitoring</title>
+  <meta name="description" content="Self-hosted, open-source monitoring for servers, volumes and databases across six cloud providers — 1-minute status checks, 30-day uptime timelines and email alerts.">
+  <meta property="og:title" content="CloudMoo — Open-source multi-cloud infrastructure monitoring">
+  <meta property="og:description" content="Self-hosted monitoring for servers, volumes and databases across six cloud providers. 1-minute checks, 30-day uptime timelines, email alerts. MIT licensed.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="#top">
+        <img src="assets/favicon.png" alt="" width="120" height="152">
+        CloudMoo
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#providers">Providers</a></li>
+        <li><a href="#self-hosted">Self-Hosted</a></li>
+        <li><a href="#get-started">Get Started</a></li>
+      </ul>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/bilal414/cloudmoo" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- Hero -->
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div>
+          <img class="hero-logo" src="assets/logo-light.svg" alt="CloudMoo" width="190" height="39">
+          <h1>Open-source multi-cloud infrastructure monitoring.</h1>
+          <p class="sub">CloudMoo is a self-hosted dashboard that tracks your servers, volumes and databases across six cloud providers — with 1-minute status checks, 30-day uptime timelines and email alerts when anything changes state.</p>
+          <div class="cta-row">
+            <a class="btn" href="https://github.com/bilal414/cloudmoo" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+              View on GitHub
+            </a>
+            <a class="btn btn-ghost" href="#get-started">Deploy your own</a>
+          </div>
+        </div>
+        <div class="terminal">
+          <div class="term-bar">
+            <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+            <span class="term-title">quick start</span>
+          </div>
+          <pre><code><span class="prompt">$</span> git clone https://github.com/bilal414/cloudmoo.git
+<span class="prompt">$</span> cd cloudmoo
+<span class="prompt">$</span> cp .env.example .env  <span class="comment"># set DJANGO_SECRET_KEY</span>
+<span class="prompt">$</span> docker compose up --build
+<span class="comment"># → http://localhost:8000</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stats strip -->
+    <section class="stats" aria-label="CloudMoo at a glance">
+      <div class="wrap stats-grid">
+        <div class="stat"><b>6</b><span>cloud providers</span></div>
+        <div class="stat"><b>20+</b><span>asset types monitored</span></div>
+        <div class="stat"><b>1 min</b><span>status check interval</span></div>
+        <div class="stat"><b>MIT</b><span>open-source license</span></div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Features</p>
+          <h2>Everything you need to watch your clouds</h2>
+          <p>Connect your provider accounts once — CloudMoo discovers your infrastructure and keeps watching it around the clock.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></span>
+            <h3>Multi-cloud asset discovery</h3>
+            <p>Connect provider accounts and CloudMoo imports your servers, volumes and databases automatically, keeping the inventory in sync.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+            <h3>Per-asset status monitoring</h3>
+            <p>Uptime checks on schedules from 1-minute intervals up, configured per asset and run by an engine you control.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>
+            <h3>30-day status timeline</h3>
+            <p>Every asset keeps a 30-day uptime timeline and incident log, so you can see exactly when it went down and came back.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>
+            <h3>Email alerts on changes</h3>
+            <p>Status and configuration-change emails to per-asset recipient lists, delivered through your own SMTP server or any Django email backend.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <h3>Team accounts with roles</h3>
+            <p>Multiple members per account with roles, so everyone on the team gets exactly the access they need.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></span>
+            <h3>Security built in</h3>
+            <p>TOTP two-factor authentication, rate-limited login and password reset, and optional reCAPTCHA v3.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+            <h3>REST API with token auth</h3>
+            <p>A token-authenticated REST API for automation and integrations — script your inventory instead of clicking through it.</p>
+          </article>
+          <article class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+            <h3>Plan-based limits</h3>
+            <p>Per-plan limits on clouds, assets and team members, ready for multi-tenant instances that serve many accounts.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Providers -->
+    <section class="section section-alt" id="providers">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Providers</p>
+          <h2>Six providers, one dashboard</h2>
+          <p>Read-only API credentials are all it takes. Here is what CloudMoo monitors for each provider.</p>
+        </div>
+        <div class="providers-grid">
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/digitalocean.svg" alt="DigitalOcean logo" width="316" height="60" loading="lazy" decoding="async"></div>
+            <h3>DigitalOcean</h3>
+            <ul class="tag-list">
+              <li>Droplets</li><li>Volumes</li><li>Databases</li>
+            </ul>
+          </article>
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/aws.svg" alt="Amazon Web Services logo" width="304" height="182" loading="lazy" decoding="async"></div>
+            <h3>AWS</h3>
+            <ul class="tag-list">
+              <li>EC2</li><li>EBS</li><li>RDS</li><li>Lambda</li><li>DynamoDB</li><li>S3</li><li>ACM</li><li>Snapshots</li><li>Elastic IPs</li><li>Load Balancers</li><li>Security Groups</li><li>ECS</li>
+            </ul>
+          </article>
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/vultr.svg" alt="Vultr logo" width="348" height="83" loading="lazy" decoding="async"></div>
+            <h3>Vultr</h3>
+            <ul class="tag-list">
+              <li>Servers</li><li>Volumes</li>
+            </ul>
+          </article>
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/hetzner.svg" alt="Hetzner logo" width="181" height="22" loading="lazy" decoding="async"></div>
+            <h3>Hetzner</h3>
+            <ul class="tag-list">
+              <li>Servers</li><li>Volumes</li>
+            </ul>
+          </article>
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/linode.svg" alt="Linode logo" width="3878" height="1108" loading="lazy" decoding="async"></div>
+            <h3>Linode</h3>
+            <ul class="tag-list">
+              <li>Servers</li><li>Volumes</li>
+            </ul>
+          </article>
+          <article class="card provider">
+            <div class="logo-chip"><img src="assets/providers/upcloud.svg" alt="UpCloud logo" width="1032" height="184" loading="lazy" decoding="async"></div>
+            <h3>UpCloud</h3>
+            <ul class="tag-list">
+              <li>Servers</li><li>Volumes</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="section" id="how-it-works">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">How it works</p>
+          <h2>Up and watching in three steps</h2>
+        </div>
+        <div class="steps">
+          <div class="card step">
+            <span class="step-num">1</span>
+            <h3>Connect a cloud</h3>
+            <p>Add a provider account with read-only API credentials. CloudMoo never needs write access to your infrastructure.</p>
+          </div>
+          <div class="card step">
+            <span class="step-num">2</span>
+            <h3>Assets auto-discovered</h3>
+            <p>The sync engine imports your servers, volumes and databases, and scheduled status checks start from 1-minute intervals.</p>
+          </div>
+          <div class="card step">
+            <span class="step-num">3</span>
+            <h3>Get alerted by email</h3>
+            <p>When an asset changes state or configuration, the right people get an email — per-asset recipient lists through your own SMTP server.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Self-hosted -->
+    <section class="section section-alt" id="self-hosted">
+      <div class="wrap split">
+        <div>
+          <p class="eyebrow">Self-hosted &amp; open source</p>
+          <h2>Your monitoring, your server, your data</h2>
+          <p class="sub">CloudMoo is released under the MIT license and runs anywhere Docker runs — a VPS, a home lab, or a VM in any cloud. No AWS account required, no vendor lock-in, no per-seat pricing, no data leaving your infrastructure.</p>
+          <ul class="check-list">
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+              <div><b>Your data stays with you</b><span>Accounts, cloud connections, assets and uptime history live in your own PostgreSQL database.</span></div>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+              <div><b>MIT licensed</b><span>Use it, modify it, redistribute it — commercially or otherwise.</span></div>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+              <div><b>No vendor lock-in</b><span>The whole stack is in the repo: Django app, monitoring engine, Docker Compose setup.</span></div>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+              <div><b>Optional extras, off by default</b><span>Sentry error tracking and reCAPTCHA v3 only run if you configure them.</span></div>
+            </li>
+          </ul>
+        </div>
+        <div class="card stack-card">
+          <h3>The stack you run</h3>
+          <ul class="stack-list">
+            <li><b>Web app</b><span>Django console + REST API, served by gunicorn &amp; nginx</span></li>
+            <li><b>Database</b><span>PostgreSQL for accounts, assets and uptime history</span></li>
+            <li><b>Monitoring engine</b><span>Celery worker + beat scheduler, with a RabbitMQ broker</span></li>
+            <li><b>Email</b><span>Your SMTP server, or any Django email backend</span></li>
+            <li><b>Deploy</b><span>Everything wired together with Docker Compose</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Get started -->
+    <section class="section get-started" id="get-started">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Get started</p>
+          <h2>Deploy your own CloudMoo</h2>
+          <p>From a fresh clone to a running dashboard in a few minutes.</p>
+        </div>
+
+        <h3>Quick start — Docker Compose</h3>
+        <pre class="code-block"><code><span class="prompt">$</span> git clone https://github.com/bilal414/cloudmoo.git
+<span class="prompt">$</span> cd cloudmoo
+<span class="prompt">$</span> cp .env.example .env  <span class="comment"># set DJANGO_SECRET_KEY</span>
+<span class="prompt">$</span> docker compose up --build
+<span class="comment"># dashboard on http://localhost:8000 — sign up at /signup/ or:</span>
+<span class="prompt">$</span> docker compose exec web python manage.py createsuperuser</code></pre>
+
+        <h3>One-line VPS installer</h3>
+        <pre class="code-block"><code><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh | sudo bash</code></pre>
+
+        <h3>One-click deploys</h3>
+        <div class="deploy-grid">
+          <a class="btn btn-ghost" href="https://render.com/deploy?repo=https://github.com/bilal414/cloudmoo" target="_blank" rel="noopener noreferrer">Deploy to Render <span class="ext-arrow" aria-hidden="true">↗</span></a>
+          <a class="btn btn-ghost" href="https://heroku.com/deploy?template=https://github.com/bilal414/cloudmoo" target="_blank" rel="noopener noreferrer">Deploy to Heroku <span class="ext-arrow" aria-hidden="true">↗</span></a>
+          <a class="btn btn-ghost" href="https://github.com/bilal414/cloudmoo#deployment" target="_blank" rel="noopener noreferrer">Deploy on Railway <span class="ext-arrow" aria-hidden="true">↗</span></a>
+        </div>
+        <p class="note">Railway has no repository deep-link — the button opens the deployment section of the README, which walks through it.</p>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section section-alt" id="faq">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">FAQ</p>
+          <h2>Frequently asked questions</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Is CloudMoo free?</summary>
+            <p class="answer">Yes. CloudMoo is open source under the MIT license — free to use, modify and self-host, with no per-seat pricing. You only pay for the server you run it on.</p>
+          </details>
+          <details>
+            <summary>Do I need an AWS account?</summary>
+            <p class="answer">No. CloudMoo is fully self-hosted — the dashboard, REST API and the monitoring engine (Celery workers plus a beat scheduler) all run in the same Docker stack on your own server. AWS only appears as one of the six cloud providers you can monitor.</p>
+          </details>
+          <details>
+            <summary>Which credentials does it need?</summary>
+            <p class="answer">Read-only API tokens for each cloud provider — CloudMoo never needs write access. For AWS, the repo ships an example read-only IAM policy (<code>aws-cloudmoo-readonly-policy.json</code>) you can attach directly.</p>
+          </details>
+          <details>
+            <summary>How are alerts sent?</summary>
+            <p class="answer">By email, through your own infrastructure: any SMTP server works, and so does any Django email backend (Amazon SES, or the console backend for development). Recipient lists are configured per asset.</p>
+          </details>
+          <details>
+            <summary>What are the minimum requirements?</summary>
+            <p class="answer">A small VM is enough — 1 vCPU and 2&nbsp;GB of RAM with Docker and Docker Compose installed. The Compose stack includes the web app, the monitoring worker and scheduler, PostgreSQL and RabbitMQ.</p>
+          </details>
+          <details>
+            <summary>Is it multi-user?</summary>
+            <p class="answer">Yes. Accounts support multiple team members with roles, and every user gets TOTP two-factor authentication, rate-limited login and optional reCAPTCHA v3 protection.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div class="footer-brand">
+        <img src="assets/logo-light.svg" alt="CloudMoo" width="124" height="25">
+        <span class="copyright">© CloudMoo contributors — released under the MIT license</span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/bilal414/cloudmoo" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+        <li><a href="https://github.com/bilal414/cloudmoo/issues" target="_blank" rel="noopener noreferrer">Issues</a></li>
+        <li><a href="https://github.com/bilal414/cloudmoo/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a></li>
+        <li><a href="https://github.com/bilal414/cloudmoo/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></li>
+      </ul>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -15,9 +15,11 @@ timeline per asset, and emails you when something goes down or comes back.
   - **AWS** — EC2, EBS, RDS, Lambda, DynamoDB, S3, ACM, Snapshots, Elastic IPs,
     Load Balancers, Security Groups, ECS
   - **Vultr, Hetzner, Linode, UpCloud** — Servers & Volumes
-- **Scheduled status monitoring** — per-asset uptime checks via AWS
-  EventBridge + Lambda, from 1-minute intervals up
-- **30-day status timeline** — uptime history and incident log per asset
+- **Scheduled status monitoring** — per-asset uptime checks on the built-in
+  scheduler (Celery Beat + worker), from 1-minute intervals up, honoring
+  per-plan intervals
+- **30-day status timeline** — uptime history and incident log per asset,
+  stored in PostgreSQL
 - **Email notifications** — status-change alerts to per-asset recipient lists,
   through any Django email backend (SMTP, Amazon SES, console for dev)
 - **Team accounts** — multiple members per account with roles
@@ -29,50 +31,53 @@ timeline per asset, and emails you when something goes down or comes back.
 
 ```
 ┌────────────┐     ┌──────────────┐     ┌───────────────────┐
-│  Browser   │────▶│  Django app  │────▶│    PostgreSQL     │
-└────────────┘     │  (console +  │     │ (accounts, assets)│
-                   │   REST API)  │     └───────────────────┘
-                   └──────┬───────┘
-                         │ schedules / invokes
-              ┌──────────▼───────────┐
-              │  AWS EventBridge     │
-              │  Scheduler           │
-              └──────────┬───────────┘
-                         │ triggers
-        ┌────────────────┼─────────────────┐
-        ▼                ▼                 ▼
- ┌─────────────┐ ┌───────────────┐ ┌────────────────┐
- │ Lambda:     │ │ Lambda:       │ │ Lambda:        │
- │ check asset │ │ sync cloud    │ │ email status   │
- │ status      │ │ assets        │ │ changes        │
- └──────┬──────┘ └───────┬───────┘ └───────┬────────┘
-        └────────────────┼─────────────────┘
-                         ▼
-                ┌─────────────────┐
-                │   DynamoDB      │
-                │ (status logs,   │
-                │  30-day data)   │
-                └─────────────────┘
+│  Browser   │────▶│  Django app  │────▶│     PostgreSQL    │
+└────────────┘     │  (console +  │     │ (accounts, assets,│
+                   │   REST API)  │     │  status logs,     │
+                   └──────┬───────┘     │  beat schedules)  │
+                          │             └────────▲──────────┘
+              ┌───────────▼───────────┐          │
+              │  Celery beat          │          │
+              │  (DatabaseScheduler,  │          │
+              │   PeriodicTasks)      │          │
+              └───────────┬───────────┘          │
+                          │ enqueues             │
+                   ┌──────▼───────┐              │
+                   │   RabbitMQ   │              │
+                   └──────┬───────┘              │
+                          │                      │
+              ┌───────────▼───────────┐──────────┘
+              │  Celery worker        │
+              │  (cloudmoo.* tasks)   │
+              └───────────┬───────────┘
+                          │
+            ┌─────────────┼───────────┐
+            ▼                         ▼
+   ┌─────────────────┐       ┌─────────────────┐
+   │  Cloud provider │       │  Django email   │
+   │  APIs           │       │  backend (SMTP, │
+   │                 │       │  SES, console)  │
+   └─────────────────┘       └─────────────────┘
 ```
 
 - **`apps/console/`** — web interface: accounts, cloud connections, asset
   dashboards, notifications, security settings
-- **`apps/api/`** — REST API (v1) and the internal webhook the monitoring
-  engine calls back into
-- **`_lambda/`** — the three monitoring Lambda functions
-- **AWS services used:** EventBridge Scheduler, Lambda, DynamoDB
-  (email delivery goes through any Django email backend; SES optional)
+- **`apps/api/`** — REST API (v1) and the webhook for external sync triggers
+- **`apps/monitoring/`** — the monitoring engine: provider status checks,
+  Celery tasks, beat schedules, and the status-log models
+- **Services:** PostgreSQL (application data, status timeline, beat schedules)
+  and RabbitMQ (Celery broker)
 
 ## Requirements
 
-- Python 3.12+ and PostgreSQL (or Docker)
-- An AWS account for the monitoring engine (EventBridge, Lambda, DynamoDB)
+- Docker (recommended), or Python 3.12+ with PostgreSQL and RabbitMQ
 - Cloud provider API credentials with **read-only** permissions
+- **No AWS account required** — the monitoring engine is built in
 
 ## Quick Start (Docker Compose)
 
 ```bash
-git clone https://github.com/<your-org>/cloudmoo.git
+git clone https://github.com/bilal414/cloudmoo.git
 cd cloudmoo
 
 cp .env.example .env
@@ -82,6 +87,10 @@ cp .env.example .env
 
 docker compose up --build
 ```
+
+This starts the full stack — `db` (PostgreSQL), `rabbitmq`, `web`, `worker`,
+`beat` — and applies the database migrations automatically (one-shot `migrate`
+service).
 
 The app listens on `http://localhost:8000`. Create the first (admin) user:
 
@@ -94,6 +103,9 @@ or sign up at `/signup/` (disable public sign-ups later with
 
 ## Manual Setup (Development)
 
+You need PostgreSQL and RabbitMQ running locally (or point `CELERY_BROKER_URL`
+at a broker elsewhere). Then:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -103,32 +115,76 @@ cp .env.example .env   # fill in DJANGO_SECRET_KEY and DB_* settings
 
 python manage.py migrate
 python manage.py createcachetable
-python manage.py runserver
 ```
 
-## AWS Setup (Monitoring Engine)
+Run the three processes:
 
-1. **Create the DynamoDB tables** (names must match your `.env`):
-   - `cloudmoo-assets` — partition key `asset_key` (String)
-   - `cloudmoo-asset-logs` — partition key `asset_key` (String),
-     sort key `timestamp` (Number)
-   - `cloudmoo-asset-emails` — partition key `asset_key` (String)
-2. **Deploy the Lambda functions** from `_lambda/`:
-   - `cloudMooCheckAssetStatus` — performs per-asset status checks
-   - `cloudMooCloudSyncAssets` — syncs assets from provider APIs; must call
-     back to `/api/v1/webhook/cloud/sync_assets/` with header
-     `X-API-KEY: <CLOUDMOO_API_KEY>`
-   - `cloudMooEmailAssetStatusChange` — sends status-change emails
-   See `_lambda/policy.json` for their required IAM permissions.
-3. **Create an IAM role for EventBridge Scheduler** allowing
-   `lambda:InvokeFunction` on those functions, and set it as
-   `AWS_SCHEDULER_ROLE` in `.env`.
-4. Set the three `AWS_LAMBDA_*` ARNs and `CLOUDMOO_API_KEY` in `.env`.
-5. Platform AWS credentials: set `AWS_ACCESS_KEY` / `AWS_SECRET_ACCESS_KEY`,
-   or leave empty to use an IAM role / instance profile.
+```bash
+python manage.py runserver
+celery -A app_cloudmoo_com worker --loglevel=info
+celery -A app_cloudmoo_com beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+```
 
-> Without the AWS monitoring engine, the console still works (connect clouds,
-> sync and browse assets) but scheduled status checks and alerts won't run.
+## Monitoring engine
+
+Scheduled checks are fully self-hosted — no external scheduler or cloud
+services involved. Celery beat (with the database scheduler) enqueues one
+periodic task per monitored asset (`cloudmoo.check_asset_status`) and one per
+connected cloud (`cloudmoo.sync_cloud_assets`); a Celery worker executes them
+against the provider APIs, writes status logs to PostgreSQL, sends alert
+emails through Django's email backend, and prunes old logs daily per plan
+retention. The webhook `/api/v1/webhook/cloud/sync_assets/` (header
+`X-API-KEY: <CLOUDMOO_API_KEY>`) still exists for triggering a cloud sync
+from external systems.
+
+## Deployment
+
+### VPS (one-liner installer)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh | sudo bash
+```
+
+Installs Docker and the Compose stack under `/opt/cloudmoo` on Debian/Ubuntu.
+Pass `--domain` to configure the public hostname:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh | sudo bash -s -- --domain monitors.example.com
+```
+
+### Deploy to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bilal414/cloudmoo)
+
+The Blueprint (`render.yaml`) provisions the web, worker, and beat services, a
+managed PostgreSQL database, and a private RabbitMQ broker.
+
+### Deploy to Heroku
+
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/bilal414/cloudmoo)
+
+Runs a web/worker/beat formation (`heroku.yml`) with the Heroku Postgres and
+CloudAMQP (RabbitMQ) add-ons from `app.json`.
+
+### Railway
+
+Per-service configs live in `deploy/railway/` (`web`, `worker`, `beat`).
+Create three services from the same repository with the matching config file,
+plus PostgreSQL and RabbitMQ.
+
+### cloud-init
+
+`deploy/cloud-init/cloudmoo.yaml` is a ready-made cloud-config that runs the
+installer on first boot of a fresh Ubuntu/Debian VM.
+
+### Marketing website
+
+`website/` is a static site with no build step. Deploy it on Cloudflare Pages
+with output directory `website` and no build command, or from the CLI:
+
+```bash
+npx wrangler pages deploy website
+```
 
 ## Configuration
 
@@ -143,19 +199,19 @@ documented [`.env.example`](.env.example). Highlights:
 | `HTTPS_ENABLED` | Secure cookies, HSTS, SSL redirect | `false` |
 | `REGISTRATION_OPEN` | Allow public sign-ups | `true` |
 | `EMAIL_BACKEND` | Any Django email backend | console (dev) / SMTP |
-| `AWS_REGION` | Region of the monitoring engine | `us-east-1` |
-| `AWS_DYNAMODB_*_TABLE` | DynamoDB table names | `cloudmoo-*` |
-| `CLOUDMOO_API_KEY` | Internal webhook shared secret | — |
+| `DATABASE_URL` | Optional; overrides the `DB_*` settings (`DB_SSLMODE` optional) | — |
+| `CELERY_BROKER_URL` | Celery broker URL; falls back to `CLOUDAMQP_URL` on Heroku, or is assembled from `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST` | `amqp://guest:guest@rabbitmq:5672//` |
+| `CLOUDMOO_API_KEY` | Optional shared secret for the sync webhook | — |
 | `RECAPTCHA_*` | Optional reCAPTCHA v3 | disabled |
 | `SENTRY_DSN` | Optional error tracking | disabled |
 
 ## Management Commands
 
 ```bash
-# Create EventBridge schedules for all clouds/assets (e.g. after a restore)
+# Create database scheduler entries for all clouds/assets (e.g. after a restore)
 python manage.py create_all_cloud_schedules --confirm
 
-# Remove all EventBridge schedules
+# Remove all database scheduler entries
 python manage.py remove_all_cloud_schedules --confirm
 
 # Seed test cloud accounts from tests/test_accounts.json (dummy credentials)
@@ -175,15 +231,20 @@ never commit them) to verify provider integrations end-to-end.
 ## Project Structure
 
 ```
-app_cloudmoo_com/     Django project (settings, urls, wsgi)
+app_cloudmoo_com/     Django project (settings, urls, wsgi, celery)
 apps/
   console/            Web app: home, account, cloud, asset, security,
                       notifications, login, signup, logout
-  api/v1/             REST API + internal webhook
+  api/v1/             REST API + sync webhook
+  monitoring/         Monitoring engine: checks, tasks, schedules, models
   management/         Management commands
   _migrations/        Consolidated migrations (single 'apps' module)
-_lambda/              Monitoring Lambda functions (deployed separately)
 tests/                Provider connection tests + fixtures
+website/              Marketing site (static, for Cloudflare Pages)
+deploy/               Railway service configs + cloud-init user data
+install.sh            VPS installer
+render.yaml           Render Blueprint
+app.json, heroku.yml  Heroku button + container formation
 ```
 
 ## Security

@@ -1,6 +1,6 @@
-from datetime import datetime
-
 import boto3
+
+from apps.monitoring.checks.base import _serialize_datetime
 
 
 def check_aws_server_status(unique_id, credentials):
@@ -173,35 +173,35 @@ def check_aws_s3_bucket_status(unique_id, credentials):
         bucket_data = {
             'Name': unique_id
         }
-        
+
         # Get bucket location
         try:
             location_response = s3.get_bucket_location(Bucket=unique_id)
             bucket_data['LocationConstraint'] = location_response.get('LocationConstraint', 'us-east-1')
         except Exception:
             bucket_data['LocationConstraint'] = 'unknown'
-        
+
         # Get versioning configuration
         try:
             versioning_response = s3.get_bucket_versioning(Bucket=unique_id)
             bucket_data['Versioning'] = versioning_response
         except Exception:
             bucket_data['Versioning'] = {}
-        
+
         # Get encryption configuration
         try:
             encryption_response = s3.get_bucket_encryption(Bucket=unique_id)
             bucket_data['Encryption'] = encryption_response
         except Exception:
             bucket_data['Encryption'] = {}
-        
+
         # Get public access block
         try:
             public_access_response = s3.get_public_access_block(Bucket=unique_id)
             bucket_data['PublicAccessBlock'] = public_access_response
         except Exception:
             bucket_data['PublicAccessBlock'] = {}
-        
+
         # S3 buckets don't have complex statuses, if we can access it, it's available
         current_status = 'available'
 
@@ -295,7 +295,7 @@ def check_aws_elastic_ip_status(unique_id, credentials):
             response = ec2.describe_addresses(AllocationIds=[unique_id])
         else:
             response = ec2.describe_addresses(PublicIps=[unique_id])
-        
+
         eip_data = response['Addresses'][0]
         # EIPs don't have a traditional "status" - they're either allocated or not
         # We'll use association status: associated, disassociated
@@ -327,18 +327,18 @@ def check_aws_load_balancer_status(unique_id, credentials):
                 aws_secret_access_key=secret_key,
                 region_name=region
             )
-            
+
             response = elbv2.describe_load_balancers(LoadBalancerArns=[unique_id])
             lb_data = response['LoadBalancers'][0]
             current_status = lb_data.get('State', {}).get('Code', 'unknown')
-            
+
             # Get additional details
             try:
                 listeners_response = elbv2.describe_listeners(LoadBalancerArn=unique_id)
                 lb_data['Listeners'] = listeners_response.get('Listeners', [])
             except Exception:
                 lb_data['Listeners'] = []
-                
+
             try:
                 target_groups_response = elbv2.describe_target_groups(LoadBalancerArn=unique_id)
                 lb_data['TargetGroups'] = target_groups_response.get('TargetGroups', [])
@@ -347,20 +347,20 @@ def check_aws_load_balancer_status(unique_id, credentials):
         else:
             # Classic Load Balancer - extract name from pseudo-ARN
             lb_name = unique_id.split('/')[-1]
-            
+
             elb = boto3.client(
                 'elb',
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 region_name=region
             )
-            
+
             response = elb.describe_load_balancers(LoadBalancerNames=[lb_name])
             lb_data = response['LoadBalancerDescriptions'][0]
             # Classic LBs don't have a state field, if we can describe it, it's active
             current_status = 'active'
             lb_data['Type'] = 'classic'
-            
+
             # Get instance health
             try:
                 health_response = elb.describe_instance_health(LoadBalancerName=lb_name)
@@ -427,7 +427,7 @@ def check_aws_ecs_service_status(unique_id, credentials):
         # Extract cluster ARN from the service ARN or use default
         # Service ARN format: arn:aws:ecs:region:account:service/cluster-name/service-name
         cluster_name = unique_id.split('/')[-2] if '/' in unique_id else 'default'
-        
+
         # Get service details
         response = ecs.describe_services(cluster=cluster_name, services=[unique_id])
         service_data = response['services'][0]
@@ -461,21 +461,21 @@ def check_aws_ecs_task_status(unique_id, credentials):
         # Extract cluster ARN from the task ARN or use default
         # Task ARN format: arn:aws:ecs:region:account:task/cluster-name/task-id
         cluster_name = unique_id.split('/')[-2] if '/' in unique_id else 'default'
-        
+
         # First try to get running tasks
         response = ecs.describe_tasks(cluster=cluster_name, tasks=[unique_id])
-        
+
         # If no running tasks found, try to get stopped tasks as well
         if not response.get('tasks'):
             response = ecs.describe_tasks(cluster=cluster_name, tasks=[unique_id], include=['TAGS'])
-        
+
         # If still no tasks found, try without specifying cluster (use task ARN directly)
         if not response.get('tasks'):
             try:
                 response = ecs.describe_tasks(tasks=[unique_id], include=['TAGS'])
             except Exception:
                 pass
-        
+
         # Check if any tasks were returned
         if not response.get('tasks'):
             # Return stopped status for tasks that may have completed
@@ -486,7 +486,7 @@ def check_aws_ecs_task_status(unique_id, credentials):
                     'note': 'Task not found - likely completed and removed from cluster'
                 }
             }
-        
+
         task_data = response['tasks'][0]
         current_status = task_data.get('lastStatus', 'unknown').lower()
 
@@ -510,16 +510,5 @@ def check_aws_ecs_task_status(unique_id, credentials):
             error_status = 'invalid_access_token'
         else:
             error_status = 'error'
-        
+
         return error_status, str(e)
-
-
-def _serialize_datetime(obj):
-    """Recursively convert datetime objects to ISO format strings."""
-    if isinstance(obj, dict):
-        return {key: _serialize_datetime(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [_serialize_datetime(item) for item in obj]
-    elif isinstance(obj, datetime):
-        return obj.isoformat()
-    return obj

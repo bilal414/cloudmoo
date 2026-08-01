@@ -6,7 +6,9 @@ FROM python:3.12
 
 RUN apt-get update && apt-get -y install nginx
 
-COPY .nginx/default_80.conf /etc/nginx/sites-available/default
+# Note: /etc/nginx/sites-available/default is rendered by init.sh at container
+# start from the /code/.nginx/default_80.conf template (listen port = $PORT,
+# default 80), so PaaS platforms can assign the port at runtime.
 
 # Set the working directory in the container
 WORKDIR /code

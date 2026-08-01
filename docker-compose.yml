@@ -1,6 +1,23 @@
+# Self-hosted CloudMoo stack. One image (built once from the Dockerfile) runs as
+# several services so the monitoring engine can't starve the web UI:
+#
+#   migrate . one-shot: applies DB migrations (+ cache table), then exits
+#   web ..... nginx + gunicorn web app (host port 8000 -> container port 80)
+#   worker .. Celery worker that runs the monitoring checks
+#   beat .... Celery beat scheduler. MUST stay a single instance — running more
+#             than one fires scheduled checks multiple times.
+#
+# Plus PostgreSQL and RabbitMQ (the Celery broker). Build and start everything with:
+#     docker compose up --build
+#
+# Configure .env (see .env.example). For this stack use the service names below:
+#     DB_HOST=db
+#     DB_PORT=5432
+#     CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: cloudmoo_db
     restart: always
     environment:
@@ -8,18 +25,46 @@ services:
       POSTGRES_USER: ${DB_USER:-cloudmoo}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-cloudmoo}
     volumes:
-      - cloudmoo_pgdata:/var/lib/postgresql/data
+      # Postgres 18+ layout: mount the parent dir; data lives in a subdirectory,
+      # which keeps future pg_upgrade --link upgrades possible.
+      - cloudmoo_pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-cloudmoo} -d $${POSTGRES_DB:-cloudmoo}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: cloudmoo_rabbitmq
+    restart: always
+    # Internal only — no ports published; app services reach it over the compose network.
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: apply DB migrations once, then exit. Every app-image service below waits
+  # for this to complete successfully so nothing serves/works against an unmigrated DB.
+  migrate:
+    image: cloudmoo:latest
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    command: bash -c "set -e; python manage.py migrate --noinput; python manage.py createcachetable || true"
+    depends_on:
+      db:
+        condition: service_healthy
+
   web:
     container_name: cloudmoo_web_app
     build:
       context: .
       dockerfile: Dockerfile
+    image: cloudmoo:latest
     ports:
       - "8000:80"
     restart: always
@@ -29,9 +74,58 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
       - DB_HOST=db
+      - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+      # Migrations are handled by the one-shot `migrate` service above.
+      - SKIP_MIGRATIONS=true
     depends_on:
       db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: cloudmoo:latest
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=db
+      - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+      - SKIP_MIGRATIONS=true
+    command: celery -A app_cloudmoo_com worker --loglevel=info --concurrency=4
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # beat MUST stay a single instance — running more than one fires scheduled
+  # checks multiple times.
+  beat:
+    image: cloudmoo:latest
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=db
+      - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+      - SKIP_MIGRATIONS=true
+    command: celery -A app_cloudmoo_com beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   cloudmoo_pgdata:

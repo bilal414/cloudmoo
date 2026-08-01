@@ -1,17 +1,17 @@
-import json
-import calendar
 import logging
-from decimal import Decimal
-from datetime import datetime, timezone, timedelta
-from apps.console.utils.aws import aws_client, aws_resource, monitoring_engine_configured
-from boto3.dynamodb.conditions import Key
+import uuid
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 from model_utils.models import TimeStampedModel
-from django.conf import settings
-from dateutil.parser import parse
-import uuid
+
 from apps.console.account.models import CoreAccountMembership
+from apps.monitoring import schedules
+from apps.monitoring.checks.base import format_duration
+from apps.monitoring.models import AssetStatusEmail, AssetStatusLog
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,6 @@ class UtilAsset(TimeStampedModel):
     type = models.CharField(max_length=64, choices=Type.choices, null=True)
     notification_emails = models.JSONField(default=list,
                                            help_text="List of email addresses to notify for asset status changes")
-    aws_schedule_arn = models.TextField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -87,10 +86,10 @@ class UtilAsset(TimeStampedModel):
     @property
     def key(self):
         import hashlib
-        
+
         # Create a base key without unique_id first
         base_key = f"cm__{self.owner.cloud.account.id}__{self.provider_code}__"
-        
+
         # If the full key is too long (over 64 chars), hash the unique_id
         full_key = f"{base_key}{self.unique_id}"
         if len(slugify(full_key)) > 64:
@@ -99,7 +98,7 @@ class UtilAsset(TimeStampedModel):
             final_key = f"{base_key}{unique_id_hash}"
         else:
             final_key = full_key
-            
+
         return slugify(final_key)
 
     @property
@@ -129,31 +128,27 @@ class UtilAsset(TimeStampedModel):
     @property
     def status(self):
         """
-        Gets the latest status from DynamoDB cloudmoo-prod-asset-logs table.
+        Gets the latest status from the asset status logs.
         Returns "unknown" if no status is found or if there's an error.
-        
+
         For better performance when loading multiple assets, use get_bulk_statuses() class method.
         """
         # Check if status is already cached on this instance
         if hasattr(self, '_cached_status'):
             return self._cached_status
-            
+
         try:
             if self.monitoring == self.Monitoring.ACTIVE:
-                # Initialize DynamoDB client
-                dynamodb = aws_resource('dynamodb')
-                table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_LOGS_TABLE)
-
                 # Query the most recent log entry for this asset
-                response = table.query(
-                    KeyConditionExpression=Key('asset_key').eq(self.key),
-                    ScanIndexForward=False,  # Get newest items first
-                    Limit=1  # We only need the most recent entry
+                latest_log = (
+                    AssetStatusLog.objects
+                    .filter(asset_key=self.key)
+                    .order_by('-timestamp')
+                    .first()
                 )
 
-                # Check if we got any items
-                if response['Items']:
-                    latest_status = response['Items'][0]['status']
+                if latest_log:
+                    latest_status = latest_log.status
                     # Filter out error statuses
                     if latest_status not in ['error', 'invalid_access_token']:
                         self._cached_status = latest_status
@@ -162,103 +157,83 @@ class UtilAsset(TimeStampedModel):
                 self._cached_status = "unknown"
                 return "unknown"
             else:
-                self._cached_status = "unknown"  
+                self._cached_status = "unknown"
                 return "unknown"
 
         except Exception as e:
-            print(f"Error fetching status for asset {self.name} from DynamoDB: {str(e)}")
+            print(f"Error fetching status for asset {self.name}: {str(e)}")
             self._cached_status = "unknown"
             return "unknown"
 
     @classmethod
     def get_bulk_statuses(cls, assets):
         """
-        Efficiently fetches statuses for multiple assets using DynamoDB batch operations.
-        
+        Efficiently fetches statuses for multiple assets in a single query.
+
         Args:
             assets: QuerySet or list of UtilAsset instances
-            
+
         Returns:
             dict: {asset.key: status} mapping
         """
         try:
-            # Initialize DynamoDB client
-            dynamodb = aws_resource('dynamodb')
-            table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_LOGS_TABLE)
-            
             # Prepare asset keys for active monitoring assets only
             active_assets = [asset for asset in assets if asset.monitoring == cls.Monitoring.ACTIVE]
             if not active_assets:
                 return {}
-            
-            # DynamoDB batch_get_item can only handle 100 items at once
+
+            # Latest log entry per asset key (PostgreSQL DISTINCT ON)
+            latest_logs = (
+                AssetStatusLog.objects
+                .filter(asset_key__in=[asset.key for asset in active_assets])
+                .order_by('asset_key', '-timestamp')
+                .distinct('asset_key')
+            )
+
             status_map = {}
-            batch_size = 100
-            
-            for i in range(0, len(active_assets), batch_size):
-                batch_assets = active_assets[i:i + batch_size]
-                
-                # Use batch queries for better performance
-                # Since we need the latest item per key, we'll use individual queries but with threading
-                import concurrent.futures
-                
-                def get_asset_status(asset):
-                    try:
-                        response = table.query(
-                            KeyConditionExpression=Key('asset_key').eq(asset.key),
-                            ScanIndexForward=False,
-                            Limit=1
-                        )
-                        
-                        if response['Items']:
-                            latest_status = response['Items'][0]['status']
-                            if latest_status not in ['error', 'invalid_access_token']:
-                                return asset.key, latest_status
-                        return asset.key, "unknown"
-                    except Exception:
-                        return asset.key, "unknown"
-                
-                # Execute queries in parallel for better performance
-                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                    results = list(executor.map(get_asset_status, batch_assets))
-                    
-                for asset_key, status in results:
-                    status_map[asset_key] = status
-            
+            for log in latest_logs:
+                if log.status not in ['error', 'invalid_access_token']:
+                    status_map[log.asset_key] = log.status
+                else:
+                    status_map[log.asset_key] = "unknown"
+
+            # Assets without any log entry get "unknown"
+            for asset in active_assets:
+                if asset.key not in status_map:
+                    status_map[asset.key] = "unknown"
+
             # Cache statuses on asset instances
             for asset in active_assets:
-                if asset.key in status_map:
-                    asset._cached_status = status_map[asset.key]
-            
+                asset._cached_status = status_map[asset.key]
+
             return status_map
-            
+
         except Exception as e:
-            print(f"Error fetching bulk statuses from DynamoDB: {str(e)}")
+            print(f"Error fetching bulk statuses: {str(e)}")
             return {}
 
     def save(self, *args, **kwargs):
         """
-        Override save method to sync with DynamoDB after saving to database
+        Override save method to keep the status-check schedule in sync with
+        the asset.
         """
         is_new = self._state.adding
+        monitoring_changed = False
 
         if not is_new:
             # Get the original object from the database
             original = self.__class__.objects.get(pk=self.pk)
-
-            # Check if monitoring status has changed to NO_LONGER_EXISTS
-            if self.monitoring == self.Monitoring.NO_LONGER_EXISTS and original.monitoring != self.Monitoring.NO_LONGER_EXISTS:
-                self.aws_schedule_delete()
+            monitoring_changed = original.monitoring != self.monitoring
 
         super().save(*args, **kwargs)
 
         if is_new and self.type in [self.Type.SERVER, self.Type.VOLUME, self.Type.DATABASE, self.Type.RDS_DATABASE, self.Type.LAMBDA, self.Type.DYNAMODB, self.Type.S3_BUCKET, self.Type.ACM_CERTIFICATE, self.Type.SNAPSHOT, self.Type.ELASTIC_IP, self.Type.LOAD_BALANCER, self.Type.SECURITY_GROUP, self.Type.ECS_SERVICE, self.Type.ECS_TASK]:
-            if monitoring_engine_configured():
+            if self.monitoring == self.Monitoring.ACTIVE:
                 try:
-                    self.aws_schedule_create()
+                    schedules.asset_schedule_create(self)
                 except Exception as e:
                     logger.warning(
-                        f"Could not create EventBridge schedule for asset {self.key}: {e}. "
+                        f"Could not create status check schedule for asset {self.key}: {e}. "
                         f"Schedules can be recreated with 'python manage.py create_all_cloud_schedules --confirm'."
                     )
             # When it's new asset then add owner email to notification_emails
@@ -266,103 +241,29 @@ class UtilAsset(TimeStampedModel):
                 self.notification_emails.append(self.owner_email)
                 self.save()
                 return
-
-        # Sync to DynamoDB after saving (no-op unless monitoring engine is configured)
-        self.sync_to_dynamodb()
+        elif monitoring_changed:
+            # Check if monitoring status has changed to NO_LONGER_EXISTS
+            if self.monitoring == self.Monitoring.NO_LONGER_EXISTS:
+                schedules.asset_schedule_delete(self)
+            else:
+                # ACTIVE/DISABLED flip: refresh the task's enabled state
+                try:
+                    schedules.asset_schedule_update(self)
+                except Exception as e:
+                    logger.warning(
+                        f"Could not update status check schedule for asset {self.key}: {e}. "
+                        f"Schedules can be recreated with 'python manage.py create_all_cloud_schedules --confirm'."
+                    )
 
     def delete(self, *args, **kwargs):
         """
-        Override delete method to remove entry from DynamoDB before deleting
+        Override delete method to remove the status-check schedule and the
+        asset's monitoring data before deleting.
         """
-        try:
-            # Initialize DynamoDB client
-            dynamodb = aws_resource('dynamodb')
-            table = dynamodb.Table(settings.AWS_DYNAMODB_ASSETS_TABLE)
-
-            # Delete from DynamoDB
-            table.delete_item(
-                Key={
-                    'asset_key': self.key
-                }
-            )
-        except Exception as e:
-            print(f"Error deleting asset {self.name} from DynamoDB: {str(e)}")
-
-        # Call aws_schedule_delete before deleting the model item
-        self.aws_schedule_delete()
+        schedules.asset_schedule_delete(self)
+        AssetStatusLog.objects.filter(asset_key=self.key).delete()
+        AssetStatusEmail.objects.filter(asset_key=self.key).delete()
         super().delete(*args, **kwargs)
-
-    def _get_aws_scheduler_client(self):
-        return aws_client("scheduler")
-
-    def _get_schedule_settings(self):
-        unique_id = self.unique_id
-        access_token = self.owner.access_token
-
-        lambda_arn = settings.AWS_LAMBDA_ASSET_STATUS
-
-        return {
-            "RoleArn": settings.AWS_SCHEDULER_ROLE,
-            "Arn": lambda_arn,
-            "RetryPolicy": {"MaximumEventAgeInSeconds": 24 * 3600, "MaximumRetryAttempts": 100},
-            "Input": json.dumps(
-                {"asset_id": self.id, "unique_id": unique_id, "access_token": access_token,
-                 "provider": self.provider_code.lower(),
-                 "asset_type": self.type.lower(), "asset_key": self.key, "uuid": f"{self.uuid}"}
-            ),
-        }
-
-    def aws_schedule_create(self):
-        aws_scheduler = self._get_aws_scheduler_client()
-        schedule_settings = self._get_schedule_settings()
-
-        aws_schedule = {
-            "Name": str(self.uuid),
-            "State": "ENABLED",
-            "ScheduleExpression": 'rate(1 minutes)',
-            "ScheduleExpressionTimezone": 'UTC',
-            "Target": schedule_settings,
-            "FlexibleTimeWindow": {"Mode": "OFF"},
-        }
-
-        aws_response = aws_scheduler.create_schedule(**aws_schedule)
-        self.aws_schedule_arn = aws_response.get("ScheduleArn")
-        self.save()
-
-    def aws_schedule_update(self):
-        if not self.aws_schedule_arn:
-            return
-            
-        # Extract schedule name from ARN
-        schedule_name = self.aws_schedule_arn.split('/')[-1]
-        
-        aws_scheduler = self._get_aws_scheduler_client()
-        schedule_settings = self._get_schedule_settings()
-
-        aws_schedule = {
-            "Name": schedule_name,
-            "State": "ENABLED" if self.monitoring == self.Monitoring.ACTIVE else "DISABLED",
-            "ScheduleExpression": 'rate(1 minutes)',
-            "ScheduleExpressionTimezone": 'UTC',
-            "Target": schedule_settings,
-            "FlexibleTimeWindow": {"Mode": "OFF"},
-        }
-
-        aws_scheduler.get_schedule(Name=schedule_name)
-        aws_response = aws_scheduler.update_schedule(**aws_schedule)
-        self.aws_schedule_arn = aws_response.get("ScheduleArn")
-        self.save()
-
-    def aws_schedule_delete(self):
-        if self.aws_schedule_arn:
-            # Extract schedule name from ARN
-            schedule_name = self.aws_schedule_arn.split('/')[-1]
-            
-            aws_scheduler = self._get_aws_scheduler_client()
-            try:
-                aws_scheduler.delete_schedule(Name=schedule_name)
-            except aws_scheduler.exceptions.ResourceNotFoundException as e:
-                print(e.__str__())
 
     def get_email_config(self):
         """
@@ -379,443 +280,87 @@ class UtilAsset(TimeStampedModel):
         self.save()
         return True
 
-    def sync_to_dynamodb(self):
+    def _get_status_timeline_entries(self, days=30):
         """
-        Syncs asset information to the DynamoDB assets table.
-        This includes asset details and related cloud information.
-        No-op when the AWS monitoring engine is not configured.
+        Collapse the asset's status logs into status-change entries (newest
+        first) with durations and metadata changes.
         """
-        if not monitoring_engine_configured():
-            return
-
-        try:
-            # Initialize DynamoDB client
-            dynamodb = aws_resource('dynamodb')
-            table = dynamodb.Table(settings.AWS_DYNAMODB_ASSETS_TABLE)
-
-            # Prepare cloud information
-            cloud = self.owner.cloud
-            cloud_info = {
-                'id': str(cloud.id),
-                'name': cloud.name,
-                'status': cloud.status,
-                'provider': {
-                    'code': cloud.provider.code,
-                    'name': cloud.provider.name
-                },
-                'account': {
-                    'id': str(cloud.account.id),
-                    'name': cloud.account.name,
-                    'status': str(cloud.account.status)
-                }
-            }
-
-            # Convert metadata to string if it's not None
-            metadata = json.loads(json.dumps(self.metadata)) if self.metadata else None
-
-            # Prepare asset information
-            asset_data = {
-                'asset_key': self.key,  # Partition key
-                'monitoring': self.monitoring,  # Sort key
-                'id': str(self.id),
-                'name': self.name,
-                'unique_id': self.unique_id,
-                'type': self.type,
-                'provider_url': self.provider_url,
-                'cloudmoo_url': self.cloudmoo_url,
-                'notification_emails': list(self.notification_emails),  # Ensure it's a list
-                'notes': self.notes,
-                'created': self.created.isoformat(),
-                'modified': self.modified.isoformat(),
-                'cloud': cloud_info,
-                'owner': {
-                    'id': str(self.owner.id),
-                    'name': self.owner.name,
-                    'status': self.owner.status,
-                }
-            }
-
-            # Remove None values as DynamoDB doesn't support them
-            asset_data = {k: v for k, v in asset_data.items() if v is not None}
-
-            # Convert any float values to Decimal
-            def convert_floats(obj):
-                if isinstance(obj, float):
-                    return Decimal(str(obj))
-                elif isinstance(obj, dict):
-                    return {k: convert_floats(v) for k, v in obj.items()}
-                elif isinstance(obj, list):
-                    return [convert_floats(v) for v in obj]
-                return obj
-
-            asset_data = convert_floats(asset_data)
-
-            # Update DynamoDB
-            table.put_item(Item=asset_data)
-
-        except Exception as e:
-            # Status data is best-effort: never block a local save on DynamoDB.
-            logger.warning(f"Error syncing asset {self.name} to DynamoDB: {str(e)}")
-
-    def get_status_timeline_off2(self, days=30):
-        """
-        Gets the status timeline for the asset from DynamoDB.
-        Returns status changes with durations over the specified number of days.
-        """
-        try:
-            # Initialize DynamoDB client
-            dynamodb = aws_resource('dynamodb')
-            table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_LOGS_TABLE)
-
-            # Calculate time range
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
-            start_timestamp = Decimal(str(calendar.timegm(start_date.utctimetuple())))
-
-            # Initialize variables for pagination
-            all_items = []
-            last_evaluated_key = None
-
-            while True:
-                # Prepare query parameters
-                query_params = {
-                    'KeyConditionExpression':
-                        Key('asset_key').eq(self.key) &
-                        Key('timestamp').gte(start_timestamp),
-                    'ScanIndexForward': False  # Get newest items first
-                }
-
-                if last_evaluated_key:
-                    query_params['ExclusiveStartKey'] = last_evaluated_key
-
-                # Execute the query
-                response = table.query(**query_params)
-
-                # Add items from this page
-                if 'Items' in response:
-                    all_items.extend(response['Items'])
-
-                # Get the last evaluated key for pagination
-                last_evaluated_key = response.get('LastEvaluatedKey')
-
-                # If no more data to fetch, break the loop
-                if not last_evaluated_key:
-                    break
-
-            # Filter out error statuses and create status_data
-            status_data = [
-                {
-                    'timestamp': item['timestamp_iso'],
-                    'status': item['status']
-                }
-                for item in all_items
-                if item['status'] not in ['error', 'invalid_access_token']
-            ]
-
-            # Sort by timestamp (should already be sorted due to ScanIndexForward=False)
-            status_data = sorted(status_data, key=lambda x: x['timestamp'], reverse=True)
-
-            # When creating status_changes list, parse the timestamp string and preserve timezone
-            status_changes = []
-            for i, item in enumerate(status_data):
-                if i == 0 or item['status'] != status_data[i - 1]['status']:
-                    parsed_timestamp = parse(item['timestamp'])
-                    status_changes.append({
-                        'timestamp': parsed_timestamp,  # This will preserve the timezone
-                        'timezone': parsed_timestamp.tzinfo.tzname(
-                            parsed_timestamp) if parsed_timestamp.tzinfo else 'UTC',
-                        'status': item['status']
-                    })
-
-            # Calculate durations
-            for i in range(len(status_changes)):
-                if i < len(status_changes) - 1:
-                    current_time = status_changes[i]['timestamp']
-                    next_time = status_changes[i + 1]['timestamp']
-                    duration = current_time - next_time
-                    status_changes[i]['duration'] = self.format_duration(duration)
-                else:
-                    status_changes[i]['duration'] = None
-
-            return status_changes
-
-        except Exception as e:
-            print(f"Error fetching status timeline from DynamoDB: {str(e)}")
-            return []
-
-    def get_status_timeline_off(self, days=30):
-        """
-        Gets the status timeline for the asset over the specified number of days.
-        Uses a database function to efficiently calculate status changes and durations.
-        """
-        from django.db import connection
-        from datetime import datetime, timedelta
-        from dateutil.tz import tzutc
-
-        end_date = datetime.now(tzutc())
+        end_date = timezone.now()
         start_date = end_date - timedelta(days=days)
+        max_items = 10000  # Reasonable limit to prevent runaway queries
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT status_value, event_timestamp, time_duration 
-                FROM get_asset_timeline(%s, %s, %s, %s)
-                """,
-                [
-                    self._meta.db_table,
-                    self.id,
-                    start_date,
-                    end_date
-                ]
-            )
+        logs = (
+            AssetStatusLog.objects
+            .filter(asset_key=self.key, timestamp__gte=start_date)
+            .exclude(status__in=['error', 'invalid_access_token'])
+            .order_by('-timestamp')[:max_items]
+        )
 
-            status_changes = []
-            for row in cursor.fetchall():
-                status, timestamp, duration = row
+        # Collapse consecutive equal statuses, but always keep entries that
+        # carry metadata changes
+        status_changes = []
+        previous_status = None
+        for log in logs:
+            has_metadata_changes = bool(log.metadata_changes)
+            if previous_status is None or log.status != previous_status or has_metadata_changes:
                 status_changes.append({
-                    'status': status,
-                    'timestamp': timestamp,
-                    'duration': self.format_duration(duration) if duration else None
+                    'timestamp': log.timestamp,
+                    'timezone': log.timestamp.tzinfo.tzname(log.timestamp) if log.timestamp.tzinfo else 'UTC',
+                    'status': log.status,
+                    'metadata_changes': log.metadata_changes or [],
                 })
+            previous_status = log.status
 
-            return status_changes
+        # Calculate durations (data is already in correct order)
+        current_time = end_date  # Use the same timestamp for consistency
+        for i in range(len(status_changes)):
+            if i == 0:
+                # First entry: duration from its timestamp to now
+                duration = current_time - status_changes[i]['timestamp']
+            else:
+                # Subsequent entries: duration from this timestamp to the previous entry's timestamp
+                duration = status_changes[i - 1]['timestamp'] - status_changes[i]['timestamp']
+            status_changes[i]['duration'] = format_duration(duration)
 
-    @classmethod
-    def _get_dynamodb_table(cls):
-        """Get cached DynamoDB table resource"""
-        if not hasattr(cls, '_dynamodb_table'):
-            dynamodb = aws_resource('dynamodb')
-            cls._dynamodb_table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_LOGS_TABLE)
-        return cls._dynamodb_table
+        return status_changes
 
     def get_status_timeline(self, days=30):
         """
-        Gets the status timeline for the asset from DynamoDB.
+        Gets the status timeline for the asset from the status logs.
         Returns status changes with durations and metadata changes over the specified number of days.
         """
         try:
-            table = self._get_dynamodb_table()
-
-            # Calculate time range
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
-            start_timestamp = Decimal(str(calendar.timegm(start_date.utctimetuple())))
-
-            # Initialize variables for pagination
-            status_changes = []
-            last_evaluated_key = None
-            items_processed = 0
-            max_items = 10000  # Reasonable limit to prevent runaway queries
-            
-            previous_status = None
-            previous_item = None
-
-            while True:
-                # Prepare query parameters with filter expression to exclude errors at query time
-                query_params = {
-                    'KeyConditionExpression':
-                        Key('asset_key').eq(self.key) &
-                        Key('timestamp').gte(start_timestamp),
-                    'FilterExpression': 'NOT #status IN (:error1, :error2)',
-                    'ExpressionAttributeNames': {'#status': 'status'},
-                    'ExpressionAttributeValues': {
-                        ':error1': 'error',
-                        ':error2': 'invalid_access_token'
-                    },
-                    'ScanIndexForward': False,  # Get newest items first
-                    'Limit': 1000  # Process in smaller batches
-                }
-
-                if last_evaluated_key:
-                    query_params['ExclusiveStartKey'] = last_evaluated_key
-
-                # Execute the query
-                response = table.query(**query_params)
-
-                # Process items from this page immediately
-                if 'Items' in response:
-                    for item in response['Items']:
-                        items_processed += 1
-                        current_status = item['status']
-                        has_metadata_changes = bool(item.get('metadata_changes'))
-                        
-                        # Only add if status changed or has metadata changes
-                        if (previous_status is None or 
-                            current_status != previous_status or 
-                            has_metadata_changes):
-                            
-                            # Parse timestamp once
-                            parsed_timestamp = parse(item['timestamp_iso'])
-                            status_changes.append({
-                                'timestamp': parsed_timestamp,
-                                'timezone': parsed_timestamp.tzinfo.tzname(
-                                    parsed_timestamp) if parsed_timestamp.tzinfo else 'UTC',
-                                'status': current_status,
-                                'metadata_changes': item.get('metadata_changes', [])
-                            })
-                            
-                        previous_status = current_status
-                        
-                        # Safety limit
-                        if items_processed >= max_items:
-                            break
-
-                # Get the last evaluated key for pagination
-                last_evaluated_key = response.get('LastEvaluatedKey')
-
-                # Break if no more data, hit limit, or no pagination key
-                if not last_evaluated_key or items_processed >= max_items:
-                    break
-
-            # Calculate durations (data is already in correct order)
-            current_time = end_date  # Use the same timestamp for consistency
-            for i in range(len(status_changes)):
-                if i == 0:
-                    # First entry: duration from its timestamp to now
-                    duration = current_time - status_changes[i]['timestamp']
-                    status_changes[i]['duration'] = self.format_duration(duration)
-                else:
-                    # Subsequent entries: duration from this timestamp to the previous entry's timestamp
-                    duration = status_changes[i - 1]['timestamp'] - status_changes[i]['timestamp']
-                    status_changes[i]['duration'] = self.format_duration(duration)
-
-            return status_changes
-
+            return self._get_status_timeline_entries(days=days)
         except Exception as e:
-            print(f"Error fetching status timeline from DynamoDB: {str(e)}")
+            print(f"Error fetching status timeline for asset {self.name}: {str(e)}")
             return []
 
     def get_status_timeline_paginated(self, page=1, page_size=10, days=30):
         """
-        Gets a paginated status timeline for the asset from DynamoDB.
+        Gets a paginated status timeline for the asset from the status logs.
         Returns status changes with pagination metadata over the specified number of days.
         """
         try:
-            table = self._get_dynamodb_table()
-            
-            # Calculate time range
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
-            start_timestamp = Decimal(str(calendar.timegm(start_date.utctimetuple())))
-            
-            # Calculate pagination parameters
+            status_changes = self._get_status_timeline_entries(days=days)
+
+            total_items = len(status_changes)
+            total_pages = max(1, (total_items + page_size - 1) // page_size)
+            page = max(1, page)
+
             offset = (page - 1) * page_size
-            
-            # Initialize variables for pagination
-            status_changes = []
-            last_evaluated_key = None
-            items_processed = 0
-            items_skipped = 0
-            max_items = 10000  # Reasonable limit to prevent runaway queries
-            
-            previous_status = None
-            
-            while True:
-                # Prepare query parameters with filter expression to exclude errors at query time
-                query_params = {
-                    'KeyConditionExpression':
-                        Key('asset_key').eq(self.key) &
-                        Key('timestamp').gte(start_timestamp),
-                    'FilterExpression': 'NOT #status IN (:error1, :error2)',
-                    'ExpressionAttributeNames': {'#status': 'status'},
-                    'ExpressionAttributeValues': {
-                        ':error1': 'error',
-                        ':error2': 'invalid_access_token'
-                    },
-                    'ScanIndexForward': False,  # Get newest items first
-                    'Limit': 1000  # Process in smaller batches
-                }
-                
-                if last_evaluated_key:
-                    query_params['ExclusiveStartKey'] = last_evaluated_key
-                
-                # Execute the query
-                response = table.query(**query_params)
-                
-                # Process items from this page immediately
-                if 'Items' in response:
-                    for item in response['Items']:
-                        items_processed += 1
-                        current_status = item['status']
-                        has_metadata_changes = bool(item.get('metadata_changes'))
-                        
-                        # Only add if status changed or has metadata changes
-                        if (previous_status is None or 
-                            current_status != previous_status or 
-                            has_metadata_changes):
-                            
-                            # Skip items until we reach the offset
-                            if items_skipped < offset:
-                                items_skipped += 1
-                                previous_status = current_status
-                                continue
-                            
-                            # Stop if we have enough items for this page
-                            if len(status_changes) >= page_size:
-                                break
-                            
-                            # Parse timestamp once
-                            parsed_timestamp = parse(item['timestamp_iso'])
-                            status_changes.append({
-                                'timestamp': parsed_timestamp,
-                                'timezone': parsed_timestamp.tzinfo.tzname(
-                                    parsed_timestamp) if parsed_timestamp.tzinfo else 'UTC',
-                                'status': current_status,
-                                'metadata_changes': item.get('metadata_changes', [])
-                            })
-                            
-                        previous_status = current_status
-                        
-                        # Safety limit
-                        if items_processed >= max_items:
-                            break
-                
-                # Get the last evaluated key for pagination
-                last_evaluated_key = response.get('LastEvaluatedKey')
-                
-                # Break if no more data, hit limit, page full, or no pagination key
-                if (not last_evaluated_key or 
-                    items_processed >= max_items or 
-                    len(status_changes) >= page_size):
-                    break
-            
-            # Calculate durations (data is already in correct order)
-            current_time = end_date
-            for i in range(len(status_changes)):
-                if i == 0:
-                    # First entry: duration from its timestamp to now
-                    duration = current_time - status_changes[i]['timestamp']
-                    status_changes[i]['duration'] = self.format_duration(duration)
-                else:
-                    # Subsequent entries: duration from this timestamp to the previous entry's timestamp
-                    duration = status_changes[i - 1]['timestamp'] - status_changes[i]['timestamp']
-                    status_changes[i]['duration'] = self.format_duration(duration)
-            
-            # Calculate pagination info
-            has_next = (last_evaluated_key is not None and 
-                       len(status_changes) == page_size and 
-                       items_processed < max_items)
-            has_previous = page > 1
-            
-            # Calculate total pages more accurately
-            if has_next:
-                # If we have a next page, we know there's at least current page + 1
-                total_pages = page + 1
-            else:
-                # No more pages, current page is the last
-                total_pages = page if len(status_changes) > 0 else 1
-            
+            items = status_changes[offset:offset + page_size]
+
             return {
-                'items': status_changes,
-                'has_next': has_next,
-                'has_previous': has_previous,
+                'items': items,
+                'has_next': page < total_pages,
+                'has_previous': page > 1,
                 'total_pages': total_pages,
                 'current_page': page,
                 'page_size': page_size
             }
-            
+
         except Exception as e:
-            print(f"Error fetching paginated status timeline from DynamoDB: {str(e)}")
+            print(f"Error fetching paginated status timeline for asset {self.name}: {str(e)}")
             return {
                 'items': [],
                 'has_next': False,
@@ -824,15 +369,3 @@ class UtilAsset(TimeStampedModel):
                 'current_page': page,
                 'page_size': page_size
             }
-
-    @staticmethod
-    def format_duration(duration):
-        """
-        Formats a duration into a human-readable string.
-        """
-        days, remainder = divmod(duration.total_seconds(), 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return f"{int(days)}d {int(hours)}h {int(minutes)}m {int(seconds)}s"
-
-

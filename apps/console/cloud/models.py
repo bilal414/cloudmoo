@@ -1,13 +1,20 @@
-import json
-from apps.console.utils.aws import aws_client, aws_resource, monitoring_engine_configured
-from django.conf import settings
-from django.db import models
-from django.utils.text import slugify
-from model_utils.models import TimeStampedModel
-from apps.console.account.models import CoreAccount
-from datetime import datetime
 import logging
 import uuid
+from datetime import datetime
+
+from django.db import models
+from django.utils.text import slugify
+from django_celery_beat.models import PeriodicTask
+from model_utils.models import TimeStampedModel
+
+from apps.console.account.models import CoreAccount
+from apps.monitoring.models import AssetStatusEmail, AssetStatusLog
+from apps.monitoring.schedules import (
+    asset_schedule_create,
+    asset_schedule_delete,
+    cloud_schedule_create,
+    cloud_schedule_delete,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +60,6 @@ class CoreCloud(TimeStampedModel):
     account = models.ForeignKey(CoreAccount, on_delete=models.CASCADE, related_name="clouds")
     provider = models.ForeignKey(CoreCloudServiceProvider, on_delete=models.CASCADE, related_name="clouds")
     last_synced = models.DateTimeField(null=True, blank=True)
-    aws_schedule_arn = models.TextField(null=True, blank=True)
 
     class Meta:
         db_table = "core_cloud"
@@ -84,35 +90,35 @@ class CoreCloud(TimeStampedModel):
     def save(self, *args, **kwargs):
         is_new = self._state.adding
         super().save(*args, **kwargs)
-        if is_new and monitoring_engine_configured():
+        if is_new:
             try:
-                self.aws_schedule_create()
+                cloud_schedule_create(self)
             except Exception as e:
                 logger.warning(
-                    f"Could not create EventBridge schedule for cloud {self.pk}: {e}. "
-                    f"Run 'python manage.py create_all_cloud_schedules --confirm' after fixing AWS configuration."
+                    f"Could not create asset sync schedule for cloud {self.pk}: {e}. "
+                    f"Run 'python manage.py create_all_cloud_schedules --confirm' to recreate schedules."
                 )
 
     def delete(self, *args, **kwargs):
         """
         Override delete method to handle cleanup before deletion.
-        AWS/DynamoDB cleanup failures are logged but never block local deletion.
+        Schedule/monitoring-data cleanup failures are logged but never block
+        local deletion.
         """
         try:
-            # First delete all assets and schedules are deleted when asset is deleted
+            # Delete monitoring data while the asset rows (and their keys) still exist
+            self.delete_monitoring_data()
+
+            # Delete all assets; each asset removes its own schedule on delete
             self.delete_all_assets()
 
-            if monitoring_engine_configured():
-                # Delete cloud's own schedule
-                self.aws_schedule_delete()
-
-                # Delete DynamoDB data
-                self.delete_dynamodb_data()
+            # Delete the cloud's own sync schedule
+            cloud_schedule_delete(self)
 
         except Exception as e:
             logger.warning(
-                f"Remote cleanup for cloud {self.pk} failed: {e}. "
-                f"Continuing with local deletion; check for orphaned EventBridge schedules."
+                f"Schedule cleanup for cloud {self.pk} failed: {e}. "
+                f"Continuing with local deletion; check for orphaned periodic tasks."
             )
 
         # Finally, perform the actual deletion
@@ -435,7 +441,7 @@ class CoreCloud(TimeStampedModel):
     def delete_all_assets(self):
         """
         Deletes all assets (servers, volumes, databases) associated with this cloud.
-        Performs cleanup of AWS schedules and DynamoDB data before deletion.
+        Each asset removes its own schedule and monitoring data on delete.
         """
         try:
             provider_account = self.provider_account
@@ -572,7 +578,7 @@ class CoreCloud(TimeStampedModel):
 
     def delete_all_asset_schedules(self):
         """
-        Deletes AWS EventBridge schedules for all assets associated with this cloud
+        Deletes the status-check schedules for all assets associated with this cloud
         """
         try:
             # Get all monitored assets
@@ -580,7 +586,7 @@ class CoreCloud(TimeStampedModel):
 
             # Delete schedules for all monitored assets
             for asset, asset_type in monitored_assets:
-                asset.aws_schedule_delete()
+                asset_schedule_delete(asset)
 
         except Exception as e:
             print(f"Error deleting asset schedules for cloud {self.name}: {str(e)}")
@@ -601,45 +607,27 @@ class CoreCloud(TimeStampedModel):
                 # Only create schedule if:
                 # 1. Asset doesn't already have a schedule
                 # 2. Asset monitoring is set to ACTIVE
-                if not asset.aws_schedule_arn and asset.monitoring == UtilAsset.Monitoring.ACTIVE:
-                    asset.aws_schedule_create()
+                if (not PeriodicTask.objects.filter(name=f'asset-{asset.uuid}').exists()
+                        and asset.monitoring == UtilAsset.Monitoring.ACTIVE):
+                    asset_schedule_create(asset)
         except Exception as e:
             print(f"Error creating asset schedules for cloud {self.name}: {str(e)}")
             raise
 
-    def delete_dynamodb_data(self):
+    def delete_monitoring_data(self):
         """
-        Deletes all data related to this cloud from DynamoDB tables
+        Deletes all monitoring data (status logs and notification emails)
+        related to this cloud's assets.
         """
         try:
-            dynamodb = aws_resource('dynamodb')
-
             # Get all assets for this cloud
-            assets = self.get_all_assets()
+            asset_keys = [asset.key for asset, _ in self.get_all_assets()]
 
-            # Delete data from logs table
-            logs_table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_LOGS_TABLE)
-            for asset, _ in assets:
-                logs_table.delete_item(
-                    Key={'asset_key': asset.key}
-                )
-
-            # Delete data from asset table
-            assets_table = dynamodb.Table(settings.AWS_DYNAMODB_ASSETS_TABLE)
-            for asset, _ in assets:
-                assets_table.delete_item(
-                    Key={'asset_key': asset.key}
-                )
-
-            # Delete data from email table
-            emails_table = dynamodb.Table(settings.AWS_DYNAMODB_ASSET_EMAILS_TABLE)
-            for asset, _ in assets:
-                emails_table.delete_item(
-                    Key={'asset_key': asset.key}
-                )
+            AssetStatusLog.objects.filter(asset_key__in=asset_keys).delete()
+            AssetStatusEmail.objects.filter(asset_key__in=asset_keys).delete()
 
         except Exception as e:
-            print(f"Error deleting DynamoDB data for cloud {self.name}: {str(e)}")
+            print(f"Error deleting monitoring data for cloud {self.name}: {str(e)}")
             pass
 
     def sync_assets(self):
@@ -649,79 +637,3 @@ class CoreCloud(TimeStampedModel):
             self.save()
         except NotImplementedError:
             raise NotImplementedError("Asset synchronization not implemented for this cloud provider")
-
-
-    def _get_aws_scheduler_client(self):
-        return aws_client("scheduler")
-
-    def _get_schedule_settings(self):
-        lambda_arn = settings.AWS_LAMBDA_CLOUD_SYNC_ASSETS
-
-        return {
-            "RoleArn": settings.AWS_SCHEDULER_ROLE,
-            "Arn": lambda_arn,
-            "RetryPolicy": {"MaximumEventAgeInSeconds": 24 * 3600, "MaximumRetryAttempts": 100},
-            "Input": json.dumps(
-                {"id": self.id, "uuid": f"{self.uuid}"}
-            ),
-        }
-
-    def aws_schedule_create(self):
-        aws_scheduler = self._get_aws_scheduler_client()
-        schedule_settings = self._get_schedule_settings()
-
-        aws_schedule = {
-            "Name": str(self.uuid),
-            "State": "ENABLED",
-            "ScheduleExpression": 'rate(1 minutes)',
-            "ScheduleExpressionTimezone": 'UTC',
-            "Target": schedule_settings,
-            "FlexibleTimeWindow": {"Mode": "OFF"},
-        }
-
-        aws_response = aws_scheduler.create_schedule(**aws_schedule)
-        self.aws_schedule_arn = aws_response.get("ScheduleArn")
-        self.save()
-
-    def aws_schedule_update(self):
-        if not self.aws_schedule_arn:
-            self.aws_schedule_create()
-            return
-            
-        # Extract schedule name from ARN
-        schedule_name = self.aws_schedule_arn.split('/')[-1]
-        
-        aws_scheduler = self._get_aws_scheduler_client()
-        schedule_settings = self._get_schedule_settings()
-
-        aws_schedule = {
-            "Name": schedule_name,
-            "State": "ENABLED" if self.status == self.Status.ACTIVE else "DISABLED",
-            "ScheduleExpression": 'rate(15 minutes)',
-            "ScheduleExpressionTimezone": 'UTC',
-            "Target": schedule_settings,
-            "FlexibleTimeWindow": {"Mode": "OFF"},
-        }
-
-        try:
-            aws_scheduler.get_schedule(Name=schedule_name)
-            aws_response = aws_scheduler.update_schedule(**aws_schedule)
-            self.aws_schedule_arn = aws_response.get("ScheduleArn")
-            self.save()
-        except aws_scheduler.exceptions.ResourceNotFoundException:
-            # If schedule doesn't exist, create a new one
-            self.aws_schedule_create()
-
-    def aws_schedule_delete(self):
-        if self.aws_schedule_arn:
-            # Extract schedule name from ARN
-            schedule_name = self.aws_schedule_arn.split('/')[-1]
-            
-            aws_scheduler = self._get_aws_scheduler_client()
-            try:
-                aws_scheduler.delete_schedule(Name=schedule_name)
-                self.aws_schedule_arn = None
-                self.save()
-            except aws_scheduler.exceptions.ResourceNotFoundException as e:
-                self.aws_schedule_arn = None
-                self.save()

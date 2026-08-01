@@ -1,7 +1,6 @@
-# upcloud.py
 import base64
+
 import requests
-from datetime import datetime
 
 
 def check_upcloud_server_status(unique_id, credentials):

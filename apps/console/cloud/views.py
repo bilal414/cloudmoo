@@ -15,7 +15,7 @@ from django.utils.decorators import method_decorator
 from django.db import models
 
 from ..utils.models import UtilAsset
-from ..utils.aws import monitoring_engine_configured
+from apps.monitoring.schedules import cloud_schedule_update
 
 
 class CloudConnect(ListView):
@@ -58,16 +58,14 @@ class CloudEditView(LoginRequiredMixin, View):
         if form.is_valid():
             form.save()
 
-            if monitoring_engine_configured():
-                if cloud.aws_schedule_arn:
-                    cloud.aws_schedule_update()
-                else:
-                    cloud.aws_schedule_create()
+            # Sync the asset-sync schedule with the cloud status (creates it
+            # when missing; disables it unless the cloud is ACTIVE)
+            cloud_schedule_update(cloud)
 
-                if cloud.status == CoreCloud.Status.ACTIVE:
-                    cloud.create_all_asset_schedules()
-                elif cloud.status == CoreCloud.Status.PAUSED:
-                    cloud.delete_all_asset_schedules()
+            if cloud.status == CoreCloud.Status.ACTIVE:
+                cloud.create_all_asset_schedules()
+            elif cloud.status == CoreCloud.Status.PAUSED:
+                cloud.delete_all_asset_schedules()
 
             messages.success(request, 'Cloud settings updated successfully!')
             return redirect('console:cloud:detail', cloud_id=cloud.id)

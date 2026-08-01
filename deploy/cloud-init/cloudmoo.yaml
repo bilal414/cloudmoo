@@ -1,0 +1,11 @@
+#cloud-config
+#
+# Generic cloud-init user data for a fresh Ubuntu 22.04+ or Debian 12+ VM. This runs as
+# root, downloads the reviewed CloudMoo installer from GitHub, and starts the complete
+# Docker Compose stack (PostgreSQL, RabbitMQ, web, worker, and beat).
+#
+# For a DNS name, replace the final command with:
+#   - [bash, /tmp/cloudmoo-install.sh, --domain, monitors.example.com]
+runcmd:
+  - [curl, -fsSL, "https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh", -o, /tmp/cloudmoo-install.sh]
+  - [bash, /tmp/cloudmoo-install.sh]

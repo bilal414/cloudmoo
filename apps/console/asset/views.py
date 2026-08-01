@@ -1,6 +1,5 @@
 import json
 
-from dateutil.tz import tzutc
 from django.views.generic import ListView
 from django.core.paginator import Paginator
 
@@ -18,12 +17,9 @@ from operator import attrgetter
 from django.views.generic import DetailView
 from django.shortcuts import get_object_or_404
 from apps.console.cloud.models import CoreCloud
-from apps.console.utils.aws import aws_client
 from apps.console.utils.models import UtilAsset
+from apps.monitoring.tasks import check_asset_status_now
 from django.http import JsonResponse, Http404
-from datetime import datetime, timedelta
-from django.conf import settings
-from dateutil.parser import parse
 
 
 class AssetsListView(ListView):
@@ -324,15 +320,8 @@ class AssetDetailView(DetailView):
 
         try:
             asset.monitoring = new_status
+            # save() syncs the status-check schedule with the monitoring state
             asset.save()
-
-            if new_status == UtilAsset.Monitoring.ACTIVE:
-                if asset.aws_schedule_arn:
-                    asset.aws_schedule_update()
-                else:
-                    asset.aws_schedule_create()
-            else:
-                asset.aws_schedule_delete()
 
             return JsonResponse({'success': True, 'new_status': new_status})
         except Exception as e:
@@ -366,57 +355,25 @@ class AssetDetailView(DetailView):
 
     @method_decorator(require_POST)
     def check_status(self, request, *args, **kwargs):
-        """Trigger an immediate status check for this asset using AWS Lambda"""
+        """Trigger an immediate status check for this asset using the monitoring engine"""
         asset = self.get_object()
-        
+
         try:
-            # Initialize AWS Lambda client
-            lambda_client = aws_client('lambda')
+            result = check_asset_status_now(asset)
 
-            # Prepare payload for Lambda function
-            payload = {
-                'asset_id': asset.id,
-                'unique_id': asset.unique_id,
-                'access_token': asset.owner.access_token,
-                'provider': asset.provider_code.lower(),
-                'asset_type': asset.type.lower(),
-                'asset_key': asset.key,
-                'uuid': str(asset.uuid)
-            }
+            # Clear any cached status so the next access gets fresh data
+            if hasattr(asset, '_cached_status'):
+                delattr(asset, '_cached_status')
 
-            # Invoke the Lambda function
-            response = lambda_client.invoke(
-                FunctionName=settings.AWS_LAMBDA_ASSET_STATUS,
-                InvocationType='RequestResponse',  # Synchronous invocation
-                Payload=json.dumps(payload)
-            )
-            
-            # Parse the response
-            response_payload = json.loads(response['Payload'].read())
-            
-            if response['StatusCode'] == 200 and response_payload.get('statusCode') == 200:
-                # Clear any cached status so the next access gets fresh data
-                if hasattr(asset, '_cached_status'):
-                    delattr(asset, '_cached_status')
-                    
-                lambda_response_body = json.loads(response_payload.get('body', '{}'))
-                current_status = lambda_response_body.get('status', 'unknown')
-                
-                return JsonResponse({
-                    'success': True,
-                    'message': 'Status check completed successfully',
-                    'status': current_status,
-                    'timestamp': lambda_response_body.get('timestamp'),
-                    'metadata_changes': lambda_response_body.get('metadata_changes', [])
-                })
-            else:
-                # Handle Lambda function errors
-                error_body = response_payload.get('body', 'Unknown error occurred')
-                return JsonResponse({
-                    'success': False,
-                    'error': f'Status check failed: {error_body}'
-                }, status=500)
-                
+            return JsonResponse({
+                'success': True,
+                'message': 'Status check completed successfully',
+                'status': result.get('status', 'unknown'),
+                'timestamp': result.get('timestamp'),
+                'metadata_changes': result.get('metadata_changes') or [],
+                'error': result.get('error'),
+            })
+
         except Exception as e:
             return JsonResponse({
                 'success': False,
