@@ -1,9 +1,28 @@
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import CloudValidationTransientError, CoreCloud
 from apps.console.utils.helper import _serialize_datetime
 from apps.console.utils.models import UtilCloud, UtilAsset
 import boto3
-from datetime import datetime
+from botocore.config import Config
+from botocore.exceptions import ClientError, NoCredentialsError
+from django.utils import timezone
+
+
+AWS_CLIENT_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=15,
+    retries={'mode': 'standard', 'max_attempts': 2},
+)
+
+
+def _required_list(payload, key, context):
+    """Fail a sync rather than treating an incomplete AWS page as empty."""
+    if not isinstance(payload, dict) or key not in payload:
+        raise RuntimeError(f"AWS returned an incomplete {context} response")
+    value = payload[key]
+    if not isinstance(value, list):
+        raise RuntimeError(f"AWS returned an invalid {context} collection")
+    return value
 
 class CoreAWSAccount(UtilCloud):
     cloud = models.ForeignKey(CoreCloud, on_delete=models.CASCADE, related_name="aws")
@@ -28,11 +47,30 @@ class CoreAWSAccount(UtilCloud):
                 aws_secret_access_key=self.secret_key,
                 region_name=self.region
             )
-            ec2 = session.client('ec2')
+            ec2 = session.client('ec2', config=AWS_CLIENT_CONFIG)
             ec2.describe_instances()
             return True
-        except Exception:
+        except NoCredentialsError:
             return False
+        except ClientError as error:
+            code = (error.response.get('Error') or {}).get('Code', '')
+            if code in {
+                'AccessDenied',
+                'AccessDeniedException',
+                'AuthFailure',
+                'InvalidClientTokenId',
+                'InvalidUserID.NotFound',
+                'UnauthorizedOperation',
+                'InvalidRegion',
+            }:
+                return False
+            raise CloudValidationTransientError(
+                'AWS validation temporarily unavailable'
+            ) from error
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'AWS validation temporarily unavailable'
+            ) from error
 
     def sync_assets(self):
         self.sync_servers()
@@ -48,7 +86,7 @@ class CoreAWSAccount(UtilCloud):
         self.sync_security_groups()
         self.sync_ecs_services()
         self.sync_ecs_tasks()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _get_aws_client(self, service='ec2'):
@@ -56,7 +94,8 @@ class CoreAWSAccount(UtilCloud):
             service,
             aws_access_key_id=self.access_key,
             aws_secret_access_key=self.secret_key,
-            region_name=self.region
+            region_name=self.region,
+            config=AWS_CLIENT_CONFIG,
         )
 
     def sync_servers(self):
@@ -217,31 +256,31 @@ class CoreAWSAccount(UtilCloud):
 
         for page in paginator.paginate():
             for table_name in page['TableNames']:
-                # Get detailed table information
+                # The list response is authoritative for existence even when
+                # a detail call for this table fails.
+                current_table_names.append(table_name)
                 try:
                     table_response = dynamodb.describe_table(TableName=table_name)
-                    table_data = table_response['Table']
-                    table_data = _serialize_datetime(table_data)
-                    
+                    table_data = _serialize_datetime(table_response['Table'])
+
                     try:
                         dynamodb_table = CoreAWSDynamoDB.objects.get(
                             owner=self,
-                            unique_id=table_name
+                            unique_id=table_name,
                         )
                         dynamodb_table.name = table_name
                         dynamodb_table.type = CoreAWSDynamoDB.Type.DYNAMODB
                         dynamodb_table.metadata = table_data
                         dynamodb_table.save()
                     except CoreAWSDynamoDB.DoesNotExist:
-                        dynamodb_table = CoreAWSDynamoDB.objects.create(
+                        CoreAWSDynamoDB.objects.create(
                             owner=self,
                             unique_id=table_name,
                             name=table_name,
                             monitoring=CoreAWSDynamoDB.Monitoring.ACTIVE,
                             type=CoreAWSDynamoDB.Type.DYNAMODB,
-                            metadata=table_data
+                            metadata=table_data,
                         )
-                    current_table_names.append(table_name)
                 except Exception as e:
                     print(f"Error syncing DynamoDB table {table_name}: {str(e)}")
                     continue
@@ -260,6 +299,9 @@ class CoreAWSAccount(UtilCloud):
             
             for bucket_info in response['Buckets']:
                 bucket_name = bucket_info['Name']
+                # A bucket returned by list_buckets exists even if one of its
+                # optional detail calls is unavailable.
+                current_bucket_names.append(bucket_name)
                 
                 try:
                     # Get detailed bucket information
@@ -317,15 +359,13 @@ class CoreAWSAccount(UtilCloud):
                             type=CoreAWSS3Bucket.Type.S3_BUCKET,
                             metadata=bucket_data
                         )
-                    current_bucket_names.append(bucket_name)
-                    
                 except Exception as e:
                     print(f"Error syncing S3 bucket {bucket_name}: {str(e)}")
                     continue
 
         except Exception as e:
             print(f"Error listing S3 buckets: {str(e)}")
-            return
+            raise
 
         CoreAWSS3Bucket.objects.filter(owner=self).exclude(unique_id__in=current_bucket_names).update(
             monitoring=CoreAWSS3Bucket.Monitoring.NO_LONGER_EXISTS
@@ -342,6 +382,7 @@ class CoreAWSAccount(UtilCloud):
             for page in paginator.paginate():
                 for cert_summary in page['CertificateSummaryList']:
                     cert_arn = cert_summary['CertificateArn']
+                    current_certificate_arns.append(cert_arn)
                     
                     try:
                         # Get detailed certificate information
@@ -370,15 +411,13 @@ class CoreAWSAccount(UtilCloud):
                                 type=CoreAWSACMCertificate.Type.ACM_CERTIFICATE,
                                 metadata=cert_data
                             )
-                        current_certificate_arns.append(cert_arn)
-                        
                     except Exception as e:
                         print(f"Error syncing ACM certificate {cert_arn}: {str(e)}")
                         continue
 
         except Exception as e:
             print(f"Error listing ACM certificates: {str(e)}")
-            return
+            raise
 
         CoreAWSACMCertificate.objects.filter(owner=self).exclude(unique_id__in=current_certificate_arns).update(
             monitoring=CoreAWSACMCertificate.Monitoring.NO_LONGER_EXISTS
@@ -395,6 +434,7 @@ class CoreAWSAccount(UtilCloud):
             for page in paginator.paginate(OwnerIds=['self']):
                 for snapshot_data in page['Snapshots']:
                     snapshot_id = snapshot_data['SnapshotId']
+                    current_snapshot_ids.append(snapshot_id)
                     
                     try:
                         # Serialize datetime objects
@@ -423,15 +463,13 @@ class CoreAWSAccount(UtilCloud):
                                 type=CoreAWSSnapshot.Type.SNAPSHOT,
                                 metadata=snapshot_data
                             )
-                        current_snapshot_ids.append(snapshot_id)
-                        
                     except Exception as e:
                         print(f"Error syncing snapshot {snapshot_id}: {str(e)}")
                         continue
 
         except Exception as e:
             print(f"Error listing snapshots: {str(e)}")
-            return
+            raise
 
         CoreAWSSnapshot.objects.filter(owner=self).exclude(unique_id__in=current_snapshot_ids).update(
             monitoring=CoreAWSSnapshot.Monitoring.NO_LONGER_EXISTS
@@ -452,6 +490,9 @@ class CoreAWSAccount(UtilCloud):
                 
                 # For VPC EIPs, use AllocationId as unique_id, for EC2-Classic use PublicIp
                 unique_id = allocation_id or public_ip
+                # The list response is authoritative for existence even if
+                # metadata normalization or persistence fails.
+                current_allocation_ids.append(unique_id)
                 
                 try:
                     # Serialize datetime objects if any
@@ -478,15 +519,13 @@ class CoreAWSAccount(UtilCloud):
                             type=CoreAWSElasticIP.Type.ELASTIC_IP,
                             metadata=eip_data
                         )
-                    current_allocation_ids.append(unique_id)
-                    
                 except Exception as e:
                     print(f"Error syncing Elastic IP {unique_id}: {str(e)}")
                     continue
 
         except Exception as e:
             print(f"Error listing Elastic IPs: {str(e)}")
-            return
+            raise
 
         CoreAWSElasticIP.objects.filter(owner=self).exclude(unique_id__in=current_allocation_ids).update(
             monitoring=CoreAWSElasticIP.Monitoring.NO_LONGER_EXISTS
@@ -503,6 +542,7 @@ class CoreAWSAccount(UtilCloud):
             for page in paginator.paginate():
                 for lb_data in page['LoadBalancers']:
                     lb_arn = lb_data['LoadBalancerArn']
+                    current_lb_arns.append(lb_arn)
                     
                     try:
                         # Serialize datetime objects
@@ -542,8 +582,6 @@ class CoreAWSAccount(UtilCloud):
                                 type=CoreAWSLoadBalancer.Type.LOAD_BALANCER,
                                 metadata=lb_data
                             )
-                        current_lb_arns.append(lb_arn)
-                        
                     except Exception as e:
                         print(f"Error syncing Load Balancer {lb_arn}: {str(e)}")
                         continue
@@ -557,7 +595,7 @@ class CoreAWSAccount(UtilCloud):
                 account_id = sts.get_caller_identity()['Account']
             except Exception as e:
                 print(f"Failed to get account ID: {str(e)}")
-                account_id = 'unknown'
+                raise
             
             try:
                 paginator = elb.get_paginator('describe_load_balancers')
@@ -566,6 +604,7 @@ class CoreAWSAccount(UtilCloud):
                         lb_name = lb_data['LoadBalancerName']
                         # Create a proper ARN for Classic Load Balancers using account ID
                         lb_arn = f"arn:aws:elasticloadbalancing:{self.region}:{account_id}:loadbalancer/{lb_name}"
+                        current_lb_arns.append(lb_arn)
                         
                         try:
                             # Serialize datetime objects
@@ -599,18 +638,17 @@ class CoreAWSAccount(UtilCloud):
                                     type=CoreAWSLoadBalancer.Type.LOAD_BALANCER,
                                     metadata=lb_data
                                 )
-                            current_lb_arns.append(lb_arn)
-                            
                         except Exception as e:
                             print(f"Error syncing Classic Load Balancer {lb_name}: {str(e)}")
                             continue
                             
             except Exception as e:
                 print(f"Error listing Classic Load Balancers: {str(e)}")
+                raise
 
         except Exception as e:
             print(f"Error listing Load Balancers: {str(e)}")
-            return
+            raise
 
         CoreAWSLoadBalancer.objects.filter(owner=self).exclude(unique_id__in=current_lb_arns).update(
             monitoring=CoreAWSLoadBalancer.Monitoring.NO_LONGER_EXISTS
@@ -627,6 +665,7 @@ class CoreAWSAccount(UtilCloud):
             for page in paginator.paginate():
                 for sg_data in page['SecurityGroups']:
                     sg_id = sg_data['GroupId']
+                    current_sg_ids.append(sg_id)
                     
                     try:
                         # Serialize datetime objects
@@ -653,15 +692,13 @@ class CoreAWSAccount(UtilCloud):
                                 type=CoreAWSSecurityGroup.Type.SECURITY_GROUP,
                                 metadata=sg_data
                             )
-                        current_sg_ids.append(sg_id)
-                        
                     except Exception as e:
                         print(f"Error syncing Security Group {sg_id}: {str(e)}")
                         continue
 
         except Exception as e:
             print(f"Error listing Security Groups: {str(e)}")
-            return
+            raise
 
         CoreAWSSecurityGroup.objects.filter(owner=self).exclude(unique_id__in=current_sg_ids).update(
             monitoring=CoreAWSSecurityGroup.Monitoring.NO_LONGER_EXISTS
@@ -674,7 +711,7 @@ class CoreAWSAccount(UtilCloud):
         try:
             # First, get all clusters
             clusters_response = ecs.list_clusters()
-            cluster_arns = clusters_response.get('clusterArns', [])
+            cluster_arns = _required_list(clusters_response, 'clusterArns', 'cluster list')
             
             for cluster_arn in cluster_arns:
                 try:
@@ -682,7 +719,10 @@ class CoreAWSAccount(UtilCloud):
                     paginator = ecs.get_paginator('list_services')
                     
                     for page in paginator.paginate(cluster=cluster_arn):
-                        service_arns = page.get('serviceArns', [])
+                        service_arns = _required_list(page, 'serviceArns', 'service list')
+                        # list_services is authoritative for existence even if
+                        # a subsequent describe_services call is incomplete.
+                        current_service_arns.extend(service_arns)
                         
                         if service_arns:
                             # Describe services in batches (max 10 per call)
@@ -693,7 +733,11 @@ class CoreAWSAccount(UtilCloud):
                                     services=batch_arns
                                 )
                                 
-                                for service_data in services_response.get('services', []):
+                                for service_data in _required_list(
+                                    services_response,
+                                    'services',
+                                    'service detail',
+                                ):
                                     service_arn = service_data['serviceArn']
                                     
                                     try:
@@ -721,19 +765,17 @@ class CoreAWSAccount(UtilCloud):
                                                 type=CoreAWSECSService.Type.ECS_SERVICE,
                                                 metadata=service_data
                                             )
-                                        current_service_arns.append(service_arn)
-                                        
                                     except Exception as e:
                                         print(f"Error syncing ECS Service {service_arn}: {str(e)}")
                                         continue
                                         
                 except Exception as e:
                     print(f"Error processing cluster {cluster_arn}: {str(e)}")
-                    continue
+                    raise
 
         except Exception as e:
             print(f"Error listing ECS Services: {str(e)}")
-            return
+            raise
 
         CoreAWSECSService.objects.filter(owner=self).exclude(unique_id__in=current_service_arns).update(
             monitoring=CoreAWSECSService.Monitoring.NO_LONGER_EXISTS
@@ -746,7 +788,7 @@ class CoreAWSAccount(UtilCloud):
         try:
             # First, get all clusters
             clusters_response = ecs.list_clusters()
-            cluster_arns = clusters_response.get('clusterArns', [])
+            cluster_arns = _required_list(clusters_response, 'clusterArns', 'cluster list')
             
             for cluster_arn in cluster_arns:
                 try:
@@ -754,7 +796,10 @@ class CoreAWSAccount(UtilCloud):
                     paginator = ecs.get_paginator('list_tasks')
                     
                     for page in paginator.paginate(cluster=cluster_arn):
-                        task_arns = page.get('taskArns', [])
+                        task_arns = _required_list(page, 'taskArns', 'task list')
+                        # list_tasks is authoritative for existence even if a
+                        # subsequent describe_tasks call is incomplete.
+                        current_task_arns.extend(task_arns)
                         
                         if task_arns:
                             # Describe tasks in batches (max 100 per call)
@@ -765,7 +810,11 @@ class CoreAWSAccount(UtilCloud):
                                     tasks=batch_arns
                                 )
                                 
-                                for task_data in tasks_response.get('tasks', []):
+                                for task_data in _required_list(
+                                    tasks_response,
+                                    'tasks',
+                                    'task detail',
+                                ):
                                     task_arn = task_data['taskArn']
                                     
                                     try:
@@ -794,19 +843,17 @@ class CoreAWSAccount(UtilCloud):
                                                 type=CoreAWSECSTask.Type.ECS_TASK,
                                                 metadata=task_data
                                             )
-                                        current_task_arns.append(task_arn)
-                                        
                                     except Exception as e:
                                         print(f"Error syncing ECS Task {task_arn}: {str(e)}")
                                         continue
                                         
                 except Exception as e:
                     print(f"Error processing cluster {cluster_arn}: {str(e)}")
-                    continue
+                    raise
 
         except Exception as e:
             print(f"Error listing ECS Tasks: {str(e)}")
-            return
+            raise
 
         CoreAWSECSTask.objects.filter(owner=self).exclude(unique_id__in=current_task_arns).update(
             monitoring=CoreAWSECSTask.Monitoring.NO_LONGER_EXISTS

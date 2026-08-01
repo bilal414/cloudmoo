@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from unittest.mock import patch, Mock
 from botocore.exceptions import ClientError, NoCredentialsError
-from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import CloudValidationTransientError, CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.aws.models import CoreAWSAccount
 from apps.console.account.models import CoreAccount
 from tests.utils import CloudTestMixin, TestAccountManager, skip_if_no_real_credentials
@@ -86,8 +86,7 @@ class AWSConnectionTestCase(CloudTestMixin, TestCase):
             region=account_config['region']
         )
 
-        result = aws_account.validate()
-        self.assertFalse(result)
+        self.assertFalse(aws_account.validate())
 
     @patch('boto3.Session')
     def test_no_credentials_connection(self, mock_session):
@@ -201,5 +200,5 @@ class AWSConnectionTestCase(CloudTestMixin, TestCase):
             region="us-east-1"
         )
 
-        result = aws_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            aws_account.validate()

@@ -58,7 +58,7 @@ class VultrConnectForm(forms.Form):
             'Content-Type': 'application/json'
         }
         try:
-            response = requests.get('https://api.vultr.com/v2/account', headers=headers)
+            response = requests.get('https://api.vultr.com/v2/account', headers=headers, timeout=10)
             if response.status_code != 200:
                 error_message = response.json().get('error', 'Unknown error occurred')
                 raise ValidationError(f"Invalid Vultr API token: {error_message}")

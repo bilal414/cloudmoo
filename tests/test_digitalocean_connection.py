@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.contrib.auth.models import User
 from unittest.mock import patch, Mock
-from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import CloudValidationTransientError, CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.digitalocean.models import CoreDigitalOceanAccount
 from apps.console.account.models import CoreAccount
 from tests.utils import CloudTestMixin, TestAccountManager, skip_if_no_real_credentials
@@ -62,8 +62,7 @@ class DigitalOceanConnectionTestCase(CloudTestMixin, TestCase):
             access_token=account_config['access_token']
         )
 
-        result = do_account.validate()
-        self.assertFalse(result)
+        self.assertFalse(do_account.validate())
 
     @patch('requests.get')
     def test_connection_timeout(self, mock_get):
@@ -75,8 +74,8 @@ class DigitalOceanConnectionTestCase(CloudTestMixin, TestCase):
             access_token="some_token"
         )
 
-        result = do_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            do_account.validate()
 
     @patch('requests.get')
     def test_malformed_token(self, mock_get):
@@ -105,8 +104,8 @@ class DigitalOceanConnectionTestCase(CloudTestMixin, TestCase):
             access_token="valid_token"
         )
 
-        result = do_account.validate()
-        self.assertFalse(result)
+        with self.assertRaises(CloudValidationTransientError):
+            do_account.validate()
 
     def test_access_token_property(self):
         account_config = self.get_test_account('digitalocean', 'valid')

@@ -1,6 +1,21 @@
 import boto3
+from botocore.config import Config
 
-from apps.monitoring.checks.base import _serialize_datetime
+from apps.monitoring.checks.base import (
+    REQUEST_TIMEOUT_SECONDS,
+    _serialize_datetime,
+    classify_aws_error,
+)
+
+
+# Boto3's defaults can keep a worker occupied for minutes during a provider
+# network failure. Monitoring checks need a bounded execution time so one bad
+# endpoint cannot consume the entire Celery pool.
+AWS_CLIENT_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=REQUEST_TIMEOUT_SECONDS,
+    retries={'mode': 'standard', 'max_attempts': 2},
+)
 
 
 def check_aws_server_status(unique_id, credentials):
@@ -16,7 +31,8 @@ def check_aws_server_status(unique_id, credentials):
             'ec2',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get instance details
@@ -28,9 +44,7 @@ def check_aws_server_status(unique_id, credentials):
             'instance': _serialize_datetime(instance_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'InvalidInstanceID.NotFound' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_volume_status(unique_id, credentials):
@@ -46,7 +60,8 @@ def check_aws_volume_status(unique_id, credentials):
             'ec2',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get volume details
@@ -58,9 +73,7 @@ def check_aws_volume_status(unique_id, credentials):
             'volume': _serialize_datetime(volume_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'InvalidVolume.NotFound' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_rds_database_status(unique_id, credentials):
@@ -76,7 +89,8 @@ def check_aws_rds_database_status(unique_id, credentials):
             'rds',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get database details
@@ -88,9 +102,7 @@ def check_aws_rds_database_status(unique_id, credentials):
             'database': _serialize_datetime(db_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'DBInstanceNotFound' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_lambda_status(unique_id, credentials):
@@ -106,7 +118,8 @@ def check_aws_lambda_status(unique_id, credentials):
             'lambda',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get function details
@@ -118,9 +131,7 @@ def check_aws_lambda_status(unique_id, credentials):
             'function': _serialize_datetime(function_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'ResourceNotFoundException' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_dynamodb_status(unique_id, credentials):
@@ -136,7 +147,8 @@ def check_aws_dynamodb_status(unique_id, credentials):
             'dynamodb',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get table details
@@ -148,9 +160,7 @@ def check_aws_dynamodb_status(unique_id, credentials):
             'table': _serialize_datetime(table_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'ResourceNotFoundException' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_s3_bucket_status(unique_id, credentials):
@@ -166,7 +176,8 @@ def check_aws_s3_bucket_status(unique_id, credentials):
             's3',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Check if bucket exists and get configuration
@@ -209,9 +220,7 @@ def check_aws_s3_bucket_status(unique_id, credentials):
             'bucket': _serialize_datetime(bucket_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'NoSuchBucket' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_acm_certificate_status(unique_id, credentials):
@@ -227,7 +236,8 @@ def check_aws_acm_certificate_status(unique_id, credentials):
             'acm',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get certificate details
@@ -239,9 +249,7 @@ def check_aws_acm_certificate_status(unique_id, credentials):
             'certificate': _serialize_datetime(cert_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'ResourceNotFoundException' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_snapshot_status(unique_id, credentials):
@@ -257,7 +265,8 @@ def check_aws_snapshot_status(unique_id, credentials):
             'ec2',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get snapshot details
@@ -269,9 +278,7 @@ def check_aws_snapshot_status(unique_id, credentials):
             'snapshot': _serialize_datetime(snapshot_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'InvalidSnapshot.NotFound' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_elastic_ip_status(unique_id, credentials):
@@ -287,7 +294,8 @@ def check_aws_elastic_ip_status(unique_id, credentials):
             'ec2',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Check if it's a VPC EIP (has AllocationId) or EC2-Classic EIP
@@ -305,9 +313,7 @@ def check_aws_elastic_ip_status(unique_id, credentials):
             'elastic_ip': _serialize_datetime(eip_data)
         }
     except Exception as e:
-        error_status = 'not_found' if ('InvalidAddress.NotFound' in str(e) or 'InvalidAllocationID.NotFound' in str(
-            e)) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_load_balancer_status(unique_id, credentials):
@@ -325,7 +331,8 @@ def check_aws_load_balancer_status(unique_id, credentials):
                 'elbv2',
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
-                region_name=region
+                region_name=region,
+                config=AWS_CLIENT_CONFIG,
             )
 
             response = elbv2.describe_load_balancers(LoadBalancerArns=[unique_id])
@@ -352,7 +359,8 @@ def check_aws_load_balancer_status(unique_id, credentials):
                 'elb',
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
-                region_name=region
+                region_name=region,
+                config=AWS_CLIENT_CONFIG,
             )
 
             response = elb.describe_load_balancers(LoadBalancerNames=[lb_name])
@@ -372,9 +380,7 @@ def check_aws_load_balancer_status(unique_id, credentials):
             'load_balancer': _serialize_datetime(lb_data)
         }
     except Exception as e:
-        error_status = 'not_found' if ('LoadBalancerNotFound' in str(e) or 'LoadBalancerNotFound' in str(
-            e)) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_security_group_status(unique_id, credentials):
@@ -390,7 +396,8 @@ def check_aws_security_group_status(unique_id, credentials):
             'ec2',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Get security group details
@@ -403,9 +410,7 @@ def check_aws_security_group_status(unique_id, credentials):
             'security_group': _serialize_datetime(sg_data)
         }
     except Exception as e:
-        error_status = 'not_found' if 'InvalidGroupId.NotFound' in str(
-            e) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_ecs_service_status(unique_id, credentials):
@@ -421,7 +426,8 @@ def check_aws_ecs_service_status(unique_id, credentials):
             'ecs',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Extract cluster ARN from the service ARN or use default
@@ -437,9 +443,7 @@ def check_aws_ecs_service_status(unique_id, credentials):
             'service': _serialize_datetime(service_data)
         }
     except Exception as e:
-        error_status = 'not_found' if ('ServiceNotFound' in str(e) or 'ClusterNotFound' in str(
-            e)) else 'invalid_access_token' if 'AuthFailure' in str(e) else 'error'
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)
 
 
 def check_aws_ecs_task_status(unique_id, credentials):
@@ -455,7 +459,8 @@ def check_aws_ecs_task_status(unique_id, credentials):
             'ecs',
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
+            config=AWS_CLIENT_CONFIG,
         )
 
         # Extract cluster ARN from the task ARN or use default
@@ -494,10 +499,10 @@ def check_aws_ecs_task_status(unique_id, credentials):
             'task': _serialize_datetime(task_data)
         }
     except Exception as e:
-        # Check for specific ECS errors
-        if 'ClusterNotFound' in str(e):
-            error_status = 'not_found'
-        elif 'Could not find task' in str(e) or 'InvalidParameterValue' in str(e):
+        # A task that has already completed may disappear from ECS before the
+        # next check. Preserve the old behavior and treat that as a stopped
+        # task rather than a failed API check.
+        if 'Could not find task' in str(e) or 'InvalidParameterValue' in str(e):
             # Task likely completed and was removed
             return 'stopped', {
                 'task': {
@@ -506,9 +511,4 @@ def check_aws_ecs_task_status(unique_id, credentials):
                     'note': 'Task completed and removed from cluster'
                 }
             }
-        elif 'AuthFailure' in str(e) or 'AccessDenied' in str(e):
-            error_status = 'invalid_access_token'
-        else:
-            error_status = 'error'
-
-        return error_status, str(e)
+        return classify_aws_error(e), str(e)

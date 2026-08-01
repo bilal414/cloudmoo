@@ -55,7 +55,7 @@ class DigitalOceanConnectForm(forms.Form):
         # Validate token with DigitalOcean API
         headers = {'Authorization': f'Bearer {access_token}'}
         try:
-            response = requests.get('https://api.digitalocean.com/v2/account', headers=headers)
+            response = requests.get('https://api.digitalocean.com/v2/account', headers=headers, timeout=10)
             if response.status_code != 200:
                 raise ValidationError("Invalid DigitalOcean access token. Please check and try again.")
         except requests.RequestException:

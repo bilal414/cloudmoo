@@ -1,7 +1,13 @@
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import (
+    CloudInventoryTransientError,
+    CloudValidationTransientError,
+    CoreCloud,
+    require_inventory_list,
+    validate_provider_response,
+)
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 from apps.console.utils.models import UtilAsset, UtilCloud
 
@@ -20,38 +26,56 @@ class CoreDigitalOceanAccount(UtilCloud):
         try:
             headers = {'Authorization': f'Bearer {self.access_token}'}
             response = requests.get('https://api.digitalocean.com/v2/account', headers=headers, timeout=10)
-            if response.status_code != 200:
-                return False
-            response.json()
-            return True
-        except Exception:
-            return False
+            return validate_provider_response(response, 'DigitalOcean')
+        except CloudValidationTransientError:
+            raise
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'DigitalOcean validation temporarily unavailable'
+            ) from error
 
     def sync_assets(self):
         self.sync_servers()
         # self.sync_databases()
         self.sync_volumes()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint):
         headers = {'Authorization': f'Bearer {self.access_token}'}
         url = f'https://api.digitalocean.com/v2/{endpoint}'
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         return response.json()
 
     def _paginate_api_call(self, endpoint):
         all_items = []
         next_url = f'https://api.digitalocean.com/v2/{endpoint}'
+        visited_urls = set()
 
         while next_url:
+            if next_url in visited_urls or len(visited_urls) >= 10000:
+                raise CloudInventoryTransientError(
+                    'DigitalOcean returned an invalid pagination sequence'
+                )
+            visited_urls.add(next_url)
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            response = requests.get(next_url, headers=headers)
+            response = requests.get(next_url, headers=headers, timeout=15)
             response.raise_for_status()
             data = response.json()
-            all_items.extend(data.get(endpoint, []))
-            next_url = data.get('links', {}).get('pages', {}).get('next')
+            all_items.extend(require_inventory_list(data, [endpoint], 'DigitalOcean'))
+
+            links = data.get('links')
+            pages = links.get('pages') if isinstance(links, dict) else None
+            if not isinstance(pages, dict):
+                raise CloudInventoryTransientError(
+                    'DigitalOcean returned an incomplete pagination response'
+                )
+            next_url = pages.get('next')
+            if next_url is not None and not isinstance(next_url, str):
+                raise CloudInventoryTransientError(
+                    'DigitalOcean returned an invalid pagination URL'
+                )
 
         return all_items
 
@@ -181,13 +205,19 @@ class CoreDigitalOceanServer(UtilAsset):
             'Content-Type': 'application/json'
         }
         try:
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=15)
             response.raise_for_status()
             data = response.json()
             current_status = data['droplet']['status']
             return current_status, data
         except requests.exceptions.RequestException as e:
-            error_status = 'not_found' if e.response.status_code == 404 else 'invalid_access_token' if e.response.status_code == 401 else 'error'
+            response = getattr(e, 'response', None)
+            status_code = getattr(response, 'status_code', None)
+            error_status = (
+                'not_found' if status_code == 404
+                else 'invalid_access_token' if status_code in (401, 403)
+                else 'error'
+            )
             return error_status, str(e)
 
 
@@ -213,4 +243,3 @@ class CoreDigitalOceanVolume(UtilAsset):
     @property
     def provider_url(self):
         return f"https://cloud.digitalocean.com/volumes/{self.unique_id}"
-

@@ -2,7 +2,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from datetime import datetime
+from django.utils import timezone
 
 from .forms import AWSConnectForm
 from .models import CoreAWSAccount
@@ -48,6 +48,6 @@ class ConnectAWSView(LoginRequiredMixin, View):
             region=region,
             name=account_name,
             status='active',
-            last_synced=datetime.now()
+            last_synced=timezone.now()
         )
         return aws_account

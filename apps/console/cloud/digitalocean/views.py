@@ -6,7 +6,7 @@ from .models import CoreDigitalOceanAccount, CoreCloud
 from apps.console.account.models import CoreAccount
 from .forms import DigitalOceanConnectForm
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 from ..models import CoreCloudServiceProvider
 
@@ -48,6 +48,6 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
             access_token=access_token,
             name=account_name,
             status='active',
-            last_synced=datetime.now()
+            last_synced=timezone.now()
         )
         return do_account

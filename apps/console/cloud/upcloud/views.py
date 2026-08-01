@@ -4,7 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from .models import CoreUpCloudAccount, CoreCloud
 from .forms import UpCloudConnectForm
-from datetime import datetime
+from django.utils import timezone
 
 from ..models import CoreCloudServiceProvider
 
@@ -47,6 +47,6 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
             password=password,
             name=account_name,
             status='active',
-            last_synced=datetime.now()
+            last_synced=timezone.now()
         )
         return upcloud_account

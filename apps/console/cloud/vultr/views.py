@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from .models import CoreVultrAccount, CoreCloud
 from .forms import VultrConnectForm
-from datetime import datetime
+from django.utils import timezone
 from ..models import CoreCloudServiceProvider
 
 
@@ -46,6 +46,6 @@ class ConnectVultrView(LoginRequiredMixin, View):
             access_token=access_token,
             name=account_name,
             status='active',
-            last_synced=datetime.now()
+            last_synced=timezone.now()
         )
         return vultr_account

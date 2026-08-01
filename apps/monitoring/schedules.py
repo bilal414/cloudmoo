@@ -48,16 +48,50 @@ def _cloud_kwargs(cloud):
     return json.dumps({'cloud_uuid': str(cloud.uuid)})
 
 
+def _upsert_periodic_task(name, task_name, kwargs, interval, enabled):
+    """Create a task or repair an existing task with the current definition."""
+    task, created = PeriodicTask.objects.get_or_create(
+        name=name,
+        defaults={
+            'task': task_name,
+            'kwargs': kwargs,
+            'interval': interval,
+            'enabled': enabled,
+        },
+    )
+
+    if not created:
+        changed = False
+        for field, value in (
+            ('task', task_name),
+            ('kwargs', kwargs),
+            ('interval', interval),
+            ('enabled', enabled),
+        ):
+            if getattr(task, field) != value:
+                setattr(task, field, value)
+                changed = True
+        if changed:
+            task.save()
+
+    return task, created
+
+
+def _cloud_schedule_enabled(cloud):
+    """Keep invalid-auth clouds scheduled so credentials can recover."""
+    from apps.console.cloud.models import CoreCloud
+
+    return cloud.status in (CoreCloud.Status.ACTIVE, CoreCloud.Status.INVALID_AUTH)
+
+
 def asset_schedule_create(asset):
     """Create (or fetch) the periodic status-check task for an asset."""
-    task, created = PeriodicTask.objects.get_or_create(
+    task, created = _upsert_periodic_task(
         name=f'asset-{asset.uuid}',
-        defaults={
-            'task': ASSET_CHECK_TASK,
-            'kwargs': _asset_kwargs(asset),
-            'interval': _asset_interval(asset),
-            'enabled': True,
-        },
+        task_name=ASSET_CHECK_TASK,
+        kwargs=_asset_kwargs(asset),
+        interval=_asset_interval(asset),
+        enabled=asset.monitoring == 'active',
     )
     if created:
         logger.info(f"Created status check schedule for asset {asset.key}")
@@ -73,18 +107,13 @@ def asset_schedule_update(asset):
     from apps.console.utils.models import UtilAsset
 
     enabled = asset.monitoring == UtilAsset.Monitoring.ACTIVE
-    try:
-        task = PeriodicTask.objects.get(name=f'asset-{asset.uuid}')
-        task.task = ASSET_CHECK_TASK
-        task.kwargs = _asset_kwargs(asset)
-        task.interval = _asset_interval(asset)
-        task.enabled = enabled
-        task.save()
-    except PeriodicTask.DoesNotExist:
-        task = asset_schedule_create(asset)
-        if task.enabled != enabled:
-            task.enabled = enabled
-            task.save(update_fields=['enabled'])
+    task, _created = _upsert_periodic_task(
+        name=f'asset-{asset.uuid}',
+        task_name=ASSET_CHECK_TASK,
+        kwargs=_asset_kwargs(asset),
+        interval=_asset_interval(asset),
+        enabled=enabled,
+    )
     return task
 
 
@@ -99,14 +128,12 @@ def asset_schedule_delete(asset):
 
 def cloud_schedule_create(cloud):
     """Create (or fetch) the periodic asset-sync task for a cloud."""
-    task, created = PeriodicTask.objects.get_or_create(
+    task, created = _upsert_periodic_task(
         name=f'cloud-{cloud.uuid}',
-        defaults={
-            'task': CLOUD_SYNC_TASK,
-            'kwargs': _cloud_kwargs(cloud),
-            'interval': _get_interval_schedule(CLOUD_SYNC_INTERVAL_MINUTES),
-            'enabled': True,
-        },
+        task_name=CLOUD_SYNC_TASK,
+        kwargs=_cloud_kwargs(cloud),
+        interval=_get_interval_schedule(CLOUD_SYNC_INTERVAL_MINUTES),
+        enabled=_cloud_schedule_enabled(cloud),
     )
     if created:
         logger.info(f"Created asset sync schedule for cloud {cloud.name}")
@@ -118,21 +145,14 @@ def cloud_schedule_update(cloud):
     Refresh the periodic asset-sync task for a cloud: enabled state follows
     ``cloud.status``. Creates the task when missing.
     """
-    from apps.console.cloud.models import CoreCloud
-
-    enabled = cloud.status == CoreCloud.Status.ACTIVE
-    try:
-        task = PeriodicTask.objects.get(name=f'cloud-{cloud.uuid}')
-        task.task = CLOUD_SYNC_TASK
-        task.kwargs = _cloud_kwargs(cloud)
-        task.interval = _get_interval_schedule(CLOUD_SYNC_INTERVAL_MINUTES)
-        task.enabled = enabled
-        task.save()
-    except PeriodicTask.DoesNotExist:
-        task = cloud_schedule_create(cloud)
-        if task.enabled != enabled:
-            task.enabled = enabled
-            task.save(update_fields=['enabled'])
+    enabled = _cloud_schedule_enabled(cloud)
+    task, _created = _upsert_periodic_task(
+        name=f'cloud-{cloud.uuid}',
+        task_name=CLOUD_SYNC_TASK,
+        kwargs=_cloud_kwargs(cloud),
+        interval=_get_interval_schedule(CLOUD_SYNC_INTERVAL_MINUTES),
+        enabled=enabled,
+    )
     return task
 
 

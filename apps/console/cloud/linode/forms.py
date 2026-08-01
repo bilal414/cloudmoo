@@ -54,7 +54,7 @@ class LinodeConnectForm(forms.Form):
         # Validate token with Linode API
         headers = {'Authorization': f'Bearer {access_token}'}
         try:
-            response = requests.get('https://api.linode.com/v4/account', headers=headers)
+            response = requests.get('https://api.linode.com/v4/account', headers=headers, timeout=10)
             if response.status_code != 200:
                 raise ValidationError("Invalid Linode API token. Please check and try again.")
         except requests.RequestException:

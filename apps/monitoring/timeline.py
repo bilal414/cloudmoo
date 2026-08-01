@@ -8,11 +8,11 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from apps.monitoring.checks.base import format_duration
+from apps.monitoring.checks.base import NON_ALERTING_STATUSES, format_duration
 from apps.monitoring.models import AssetStatusLog
 
 # Statuses excluded from the timeline (transient check failures)
-TIMELINE_EXCLUDED_STATUSES = ['error', 'invalid_access_token']
+TIMELINE_EXCLUDED_STATUSES = NON_ALERTING_STATUSES
 
 # Reasonable limit to prevent runaway queries
 MAX_TIMELINE_ITEMS = 10000

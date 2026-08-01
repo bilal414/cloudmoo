@@ -73,7 +73,7 @@ class UpCloudConnectForm(forms.Form):
                 'Authorization': f'Basic {auth_token}',
                 'Content-Type': 'application/json'
             }
-            response = requests.get('https://api.upcloud.com/1.3/account', headers=headers)
+            response = requests.get('https://api.upcloud.com/1.3/account', headers=headers, timeout=10)
             if response.status_code != 200:
                 raise ValidationError("Invalid UpCloud credentials. Please check and try again.")
 

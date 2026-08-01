@@ -1,8 +1,13 @@
 from django.db import models
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.models import (
+    CloudValidationTransientError,
+    CoreCloud,
+    require_inventory_list,
+    validate_provider_response,
+)
 from apps.console.utils.models import UtilCloud, UtilAsset
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 
 class CoreHetznerAccount(UtilCloud):
@@ -19,23 +24,24 @@ class CoreHetznerAccount(UtilCloud):
         try:
             headers = {'Authorization': f'Bearer {self.access_token}'}
             response = requests.get('https://api.hetzner.cloud/v1/servers', headers=headers, timeout=10)
-            if response.status_code != 200:
-                return False
-            response.json()
-            return True
-        except Exception:
-            return False
+            return validate_provider_response(response, 'Hetzner')
+        except CloudValidationTransientError:
+            raise
+        except Exception as error:
+            raise CloudValidationTransientError(
+                'Hetzner validation temporarily unavailable'
+            ) from error
 
     def sync_assets(self):
         self.sync_servers()
         self.sync_volumes()
-        self.last_synced = datetime.now()
+        self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint, params=None):
         headers = {'Authorization': f'Bearer {self.access_token}'}
         url = f'https://api.hetzner.cloud/v1/{endpoint}'
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
         return response.json()
 
@@ -47,7 +53,7 @@ class CoreHetznerAccount(UtilCloud):
         while True:
             params = {'page': page, 'per_page': per_page}
             data = self._make_api_call('servers', params)
-            servers = data['servers']
+            servers = require_inventory_list(data, ['servers'], 'Hetzner')
             all_servers.extend(servers)
 
             if len(servers) < per_page:
@@ -90,7 +96,7 @@ class CoreHetznerAccount(UtilCloud):
         while True:
             params = {'page': page, 'per_page': per_page}
             data = self._make_api_call('volumes', params)
-            volumes = data['volumes']
+            volumes = require_inventory_list(data, ['volumes'], 'Hetzner')
             all_volumes.extend(volumes)
 
             if len(volumes) < per_page:
@@ -164,4 +170,3 @@ class CoreHetznerVolume(UtilAsset):
     # @property
     # def status(self):
     #     return self.metadata['status']
-

@@ -1,22 +1,73 @@
 import logging
 import uuid
-from datetime import datetime
+from django.utils import timezone
 
 from django.db import models
 from django.utils.text import slugify
-from django_celery_beat.models import PeriodicTask
 from model_utils.models import TimeStampedModel
 
 from apps.console.account.models import CoreAccount
-from apps.monitoring.models import AssetStatusEmail, AssetStatusLog
+from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
 from apps.monitoring.schedules import (
-    asset_schedule_create,
     asset_schedule_delete,
+    asset_schedule_update,
     cloud_schedule_create,
     cloud_schedule_delete,
+    cloud_schedule_update,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CloudValidationTransientError(Exception):
+    """The provider could not be reached or returned a transient failure."""
+
+
+class CloudInventoryTransientError(Exception):
+    """The provider returned an incomplete inventory response."""
+
+
+def validate_provider_response(response, provider_name):
+    """Normalize provider validation responses without exposing credentials."""
+    status_code = getattr(response, 'status_code', None)
+    if status_code is not None and 200 <= status_code < 300:
+        try:
+            response.json()
+        except (AttributeError, ValueError) as error:
+            raise CloudValidationTransientError(
+                f"{provider_name} returned an invalid validation response"
+            ) from error
+        return True
+
+    # Client errors indicate invalid or insufficient credentials. Rate limits
+    # and server errors are transient and must not disable monitoring.
+    if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+        return False
+
+    raise CloudValidationTransientError(
+        f"{provider_name} validation temporarily unavailable"
+    )
+
+
+def require_inventory_list(payload, path, provider_name):
+    """Return a provider inventory list or fail closed for a retry.
+
+    An omitted collection is not equivalent to an empty inventory. Treating a
+    malformed response as empty would mark every locally known asset as gone.
+    """
+    current = payload
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            raise CloudInventoryTransientError(
+                f"{provider_name} returned an incomplete inventory response"
+            )
+        current = current[key]
+
+    if not isinstance(current, list):
+        raise CloudInventoryTransientError(
+            f"{provider_name} returned an invalid inventory collection"
+        )
+    return current
 
 
 
@@ -89,6 +140,15 @@ class CoreCloud(TimeStampedModel):
 
     def save(self, *args, **kwargs):
         is_new = self._state.adding
+        status_changed = False
+        update_fields = kwargs.get('update_fields')
+        if not is_new:
+            try:
+                original_status = type(self).objects.only('status').get(pk=self.pk).status
+                status_changed = original_status != self.status
+            except type(self).DoesNotExist:
+                pass
+
         super().save(*args, **kwargs)
         if is_new:
             try:
@@ -97,6 +157,14 @@ class CoreCloud(TimeStampedModel):
                 logger.warning(
                     f"Could not create asset sync schedule for cloud {self.pk}: {e}. "
                     f"Run 'python manage.py create_all_cloud_schedules --confirm' to recreate schedules."
+                )
+        elif status_changed and (not update_fields or 'status' in update_fields):
+            try:
+                cloud_schedule_update(self)
+            except Exception as e:
+                logger.warning(
+                    f"Could not update asset sync schedule for cloud {self.pk}: {e}. "
+                    f"Schedules can be recreated with 'python manage.py create_all_cloud_schedules --confirm'."
                 )
 
     def delete(self, *args, **kwargs):
@@ -581,8 +649,9 @@ class CoreCloud(TimeStampedModel):
         Deletes the status-check schedules for all assets associated with this cloud
         """
         try:
-            # Get all monitored assets
-            monitored_assets = self.get_active_assets()
+            # Remove any existing status task, including one left behind for an
+            # asset that a provider no longer returns.
+            monitored_assets = self.get_all_assets()
 
             # Delete schedules for all monitored assets
             for asset, asset_type in monitored_assets:
@@ -596,20 +665,18 @@ class CoreCloud(TimeStampedModel):
         from apps.console.utils.models import UtilAsset
 
         """
-        Creates default schedules for all active assets that don't have schedules.
+        Reconcile schedules for all locally known assets.
         This is useful when reactivating a cloud or fixing authentication issues.
         """
         try:
-            # Get all active assets (excluding NO_LONGER_EXISTS)
-            active_assets = self.get_active_assets()
-
-            for asset, asset_type in active_assets:
-                # Only create schedule if:
-                # 1. Asset doesn't already have a schedule
-                # 2. Asset monitoring is set to ACTIVE
-                if (not PeriodicTask.objects.filter(name=f'asset-{asset.uuid}').exists()
-                        and asset.monitoring == UtilAsset.Monitoring.ACTIVE):
-                    asset_schedule_create(asset)
+            # Reconcile every locally known asset. This repairs stale task
+            # definitions and removes tasks for assets that disappeared from
+            # the provider, while preserving disabled assets as disabled.
+            for asset, asset_type in self.get_all_assets():
+                if asset.monitoring == UtilAsset.Monitoring.NO_LONGER_EXISTS:
+                    asset_schedule_delete(asset)
+                else:
+                    asset_schedule_update(asset)
         except Exception as e:
             print(f"Error creating asset schedules for cloud {self.name}: {str(e)}")
             raise
@@ -625,6 +692,7 @@ class CoreCloud(TimeStampedModel):
 
             AssetStatusLog.objects.filter(asset_key__in=asset_keys).delete()
             AssetStatusEmail.objects.filter(asset_key__in=asset_keys).delete()
+            AssetMonitoringState.objects.filter(asset_key__in=asset_keys).delete()
 
         except Exception as e:
             print(f"Error deleting monitoring data for cloud {self.name}: {str(e)}")
@@ -633,7 +701,7 @@ class CoreCloud(TimeStampedModel):
     def sync_assets(self):
         try:
             self.provider_account.sync_assets()
-            self.last_synced = datetime.now()
+            self.last_synced = timezone.now()
             self.save()
         except NotImplementedError:
             raise NotImplementedError("Asset synchronization not implemented for this cloud provider")

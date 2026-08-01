@@ -2,6 +2,8 @@ import base64
 
 import requests
 
+from apps.monitoring.checks.base import REQUEST_TIMEOUT_SECONDS, classify_http_error
+
 
 def check_upcloud_server_status(unique_id, credentials):
     """Check UpCloud server status"""
@@ -19,7 +21,7 @@ def check_upcloud_server_status(unique_id, credentials):
 
         # Get server details
         url = f'https://api.upcloud.com/1.3/server/{unique_id}'
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
 
         server_data = response.json().get('server', {})
@@ -29,12 +31,9 @@ def check_upcloud_server_status(unique_id, credentials):
             'server': server_data
         }
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            return 'not_found', str(e)
-        elif e.response.status_code == 401:
-            return 'invalid_access_token', str(e)
-        else:
-            return 'error', str(e)
+        return classify_http_error(e), str(e)
+    except requests.exceptions.RequestException as e:
+        return classify_http_error(e), str(e)
     except Exception as e:
         return 'error', str(e)
 
@@ -55,7 +54,7 @@ def check_upcloud_volume_status(unique_id, credentials):
 
         # Get volume details
         url = f'https://api.upcloud.com/1.3/storage/{unique_id}'
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
 
         volume_data = response.json().get('storage', {})
@@ -65,11 +64,8 @@ def check_upcloud_volume_status(unique_id, credentials):
             'volume': volume_data
         }
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            return 'not_found', str(e)
-        elif e.response.status_code == 401:
-            return 'invalid_access_token', str(e)
-        else:
-            return 'error', str(e)
+        return classify_http_error(e), str(e)
+    except requests.exceptions.RequestException as e:
+        return classify_http_error(e), str(e)
     except Exception as e:
         return 'error', str(e)

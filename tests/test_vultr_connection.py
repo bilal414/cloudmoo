@@ -1,8 +1,7 @@
 from django.test import TestCase
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
 from unittest.mock import patch, Mock
-from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import CloudValidationTransientError, CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.vultr.models import CoreVultrAccount
 from apps.console.account.models import CoreAccount
 from tests.utils import CloudTestMixin, TestAccountManager, skip_if_no_real_credentials
@@ -63,10 +62,7 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token=account_config['access_token']
         )
 
-        with self.assertRaises(ValidationError) as context:
-            vultr_account.validate()
-        
-        self.assertIn("Vultr API validation failed", str(context.exception))
+        self.assertFalse(vultr_account.validate())
 
     @patch('requests.get')
     def test_forbidden_access_connection(self, mock_get):
@@ -83,10 +79,7 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token="restricted_token"
         )
 
-        with self.assertRaises(ValidationError) as context:
-            vultr_account.validate()
-        
-        self.assertIn("Vultr API validation failed", str(context.exception))
+        self.assertFalse(vultr_account.validate())
 
     @patch('requests.get')
     def test_rate_limited_connection(self, mock_get):
@@ -100,10 +93,8 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token=account_config['access_token']
         )
 
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(CloudValidationTransientError):
             vultr_account.validate()
-        
-        self.assertIn("Vultr API validation failed", str(context.exception))
 
     @patch('requests.get')
     def test_server_error_connection(self, mock_get):
@@ -120,10 +111,8 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token="some_token"
         )
 
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(CloudValidationTransientError):
             vultr_account.validate()
-        
-        self.assertIn("Vultr API validation failed", str(context.exception))
 
     @patch('requests.get')
     def test_connection_timeout(self, mock_get):
@@ -135,7 +124,7 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token="some_token"
         )
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(CloudValidationTransientError):
             vultr_account.validate()
 
     @patch('requests.get')
@@ -151,10 +140,7 @@ class VultrConnectionTestCase(CloudTestMixin, TestCase):
             access_token="bad_token"
         )
 
-        with self.assertRaises(ValidationError) as context:
-            vultr_account.validate()
-        
-        self.assertIn("Unknown error occurred", str(context.exception))
+        self.assertFalse(vultr_account.validate())
 
     def test_access_token_property(self):
         account_config = self.get_test_account('vultr', 'valid')

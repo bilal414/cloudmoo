@@ -29,4 +29,5 @@ if [ "${SKIP_MIGRATIONS:-false}" != "true" ]; then
   python manage.py createcachetable || true
 fi
 
-exec gunicorn app_cloudmoo_com.wsgi:application --workers=4 --timeout=3600 --bind 0.0.0.0:8000
+exec su -s /bin/sh cloudmoo -c \
+  'HOME=/tmp exec gunicorn app_cloudmoo_com.wsgi:application --workers=4 --timeout=3600 --bind 0.0.0.0:8000'

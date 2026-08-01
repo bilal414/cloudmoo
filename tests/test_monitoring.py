@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
+import requests
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -8,11 +9,24 @@ from django_celery_beat.models import PeriodicTask
 
 from apps.console.account.models import CoreAccount, CoreAccountMembership
 from apps.console.cloud.digitalocean.models import CoreDigitalOceanAccount, CoreDigitalOceanServer
-from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import (
+    CloudInventoryTransientError,
+    CloudValidationTransientError,
+    CoreCloud,
+    CoreCloudServiceProvider,
+    require_inventory_list,
+)
 from apps.console.member.models import CoreMember
 from apps.console.utils.models import UtilAsset
 from apps.monitoring.metadata import compare_metadata
-from apps.monitoring.models import AssetStatusEmail, AssetStatusLog
+from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
+from apps.monitoring.email import (
+    create_email_body,
+    ensure_status_change_email_outbox,
+    send_status_change_emails,
+)
+from apps.monitoring.metadata import redact_error_message, redact_sensitive_metadata
+from apps.monitoring.checks.digitalocean import check_digitalocean_server_status
 from apps.monitoring.schedules import (
     asset_schedule_create,
     asset_schedule_delete,
@@ -21,7 +35,31 @@ from apps.monitoring.schedules import (
     cloud_schedule_delete,
     cloud_schedule_update,
 )
-from apps.monitoring.tasks import prune_status_logs, run_status_check
+from apps.monitoring.tasks import (
+    _record_monitoring_observation,
+    _start_monitoring_observation,
+    prune_status_logs,
+    retry_pending_status_emails,
+    run_cloud_sync,
+    run_status_check,
+)
+
+
+class HealthProbeTestCase(TestCase):
+    def test_liveness_probe_does_not_require_database_queries(self):
+        response = self.client.get('/healthz/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'ok')
+
+    def test_readiness_probe_checks_database(self):
+        response = self.client.get('/readyz/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'status': 'ready',
+            'checks': {'database': 'ok'},
+        })
 
 
 def make_droplet_metadata(status='active'):
@@ -129,6 +167,40 @@ class MetadataCompareTestCase(TestCase):
         self.assertIn("Security Groups: Removed {'GroupName': 'default'}", changes)
 
 
+class InventorySafetyTestCase(TestCase):
+    def test_missing_collection_fails_closed(self):
+        with self.assertRaises(CloudInventoryTransientError):
+            require_inventory_list({}, ['servers'], 'TestProvider')
+
+    def test_empty_collection_is_valid_inventory(self):
+        self.assertEqual(
+            require_inventory_list({'servers': []}, ['servers'], 'TestProvider'),
+            [],
+        )
+
+    def test_error_messages_redact_credentials_and_are_bounded(self):
+        message = redact_error_message(
+            'Authorization: Bearer super-secret-token password=also-secret ' + 'x' * 5000
+        )
+
+        self.assertNotIn('super-secret-token', message)
+        self.assertNotIn('also-secret', message)
+        self.assertLessEqual(len(message), 2048)
+
+
+class ProviderCheckErrorTestCase(TestCase):
+    @patch('apps.monitoring.checks.digitalocean.requests.get')
+    def test_connection_error_is_normalized_as_error(self, mock_get):
+        mock_get.side_effect = requests.ConnectionError('provider unavailable')
+
+        status, message = check_digitalocean_server_status('123', 'token')
+
+        self.assertEqual(status, 'error')
+        self.assertIn('provider unavailable', message)
+        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_args.kwargs['timeout'], 15)
+
+
 class StatusTimelineTestCase(MonitoringFixtureTestCase):
     def test_collapse_error_exclusion_and_durations(self):
         now = timezone.now()
@@ -160,6 +232,13 @@ class StatusTimelineTestCase(MonitoringFixtureTestCase):
         self.assertNotIn('error', [entry['status'] for entry in timeline])
 
     def test_empty_timeline(self):
+        self.assertEqual(self.server.get_status_timeline(days=30), [])
+
+    def test_not_found_is_excluded_from_status_and_timeline(self):
+        self.create_log('not_found', timezone.now())
+
+        self.assertEqual(self.server.status, 'unknown')
+        self.assertEqual(UtilAsset.get_bulk_statuses([self.server])[self.server.key], 'unknown')
         self.assertEqual(self.server.get_status_timeline(days=30), [])
 
     def test_paginated_contract(self):
@@ -253,6 +332,29 @@ class RunStatusCheckTestCase(MonitoringFixtureTestCase):
 
     @patch('apps.monitoring.tasks.send_status_change_email')
     @patch('apps.monitoring.tasks.get_check_function')
+    def test_status_flip_is_detected_without_a_metadata_status_field(self, mock_get_check, mock_email_task):
+        def check(status):
+            return lambda unique_id, access_token: (
+                status,
+                {'droplet': {'name': 'test-server'}},
+            )
+
+        mock_get_check.return_value = check('active')
+        run_status_check(self.server)
+
+        mock_get_check.return_value = check('off')
+        result = run_status_check(self.server)
+
+        self.assertEqual(result['status'], 'off')
+        self.assertEqual(result['metadata_changes'], [])
+        self.assertEqual(AssetStatusLog.objects.count(), 2)
+        mock_email_task.delay.assert_called_once()
+        args = mock_email_task.delay.call_args[0]
+        self.assertEqual(args[2:4], ('active', 'off'))
+        self.assertEqual(args[5], [])
+
+    @patch('apps.monitoring.tasks.send_status_change_email')
+    @patch('apps.monitoring.tasks.get_check_function')
     def test_error_status_stores_error_log_without_email(self, mock_get_check, mock_email_task):
         mock_get_check.return_value = lambda unique_id, access_token: ('error', 'boom')
 
@@ -269,6 +371,77 @@ class RunStatusCheckTestCase(MonitoringFixtureTestCase):
         self.assertEqual(log.error_message, 'boom')
         mock_email_task.delay.assert_not_called()
         mock_email_task.run.assert_not_called()
+
+    @patch('apps.monitoring.tasks.send_status_change_email')
+    @patch('apps.monitoring.tasks.get_check_function')
+    def test_monitoring_state_tracks_heartbeats_and_compacts_repeated_errors(self, mock_get_check, mock_email_task):
+        mock_get_check.return_value = self.fake_check('active')
+        run_status_check(self.server)
+
+        state = AssetMonitoringState.objects.get(asset_key=self.server.key)
+        self.assertIsNotNone(state.last_checked_at)
+        self.assertIsNotNone(state.last_success_at)
+        self.assertEqual(state.last_status, 'active')
+        self.assertEqual(state.consecutive_failures, 0)
+
+        mock_get_check.return_value = lambda unique_id, access_token: ('error', 'provider unavailable')
+        run_status_check(self.server)
+        run_status_check(self.server)
+
+        state.refresh_from_db()
+        self.assertEqual(state.last_error_status, 'error')
+        self.assertEqual(state.consecutive_failures, 2)
+        # The state row captures every failed heartbeat; the audit log records
+        # only the transition into the error state.
+        self.assertEqual(AssetStatusLog.objects.filter(status='error').count(), 1)
+
+        mock_get_check.return_value = self.fake_check('active')
+        run_status_check(self.server)
+        state.refresh_from_db()
+        self.assertEqual(state.last_status, 'active')
+        self.assertEqual(state.last_error_status, '')
+        self.assertEqual(state.consecutive_failures, 0)
+
+    @patch('apps.monitoring.tasks.get_check_function')
+    def test_stale_monitoring_state_is_not_reported_as_healthy(self, mock_get_check):
+        mock_get_check.return_value = self.fake_check('active')
+        run_status_check(self.server)
+
+        state = AssetMonitoringState.objects.get(asset_key=self.server.key)
+        state.last_checked_at = timezone.now() - timedelta(minutes=10)
+        state.save(update_fields=['last_checked_at'])
+        self.server.refresh_from_db()
+
+        self.assertTrue(self.server.monitoring_stale)
+        self.assertEqual(self.server.status, 'unknown')
+
+    def test_out_of_order_check_result_cannot_regress_newer_state(self):
+        first_generation = _start_monitoring_observation(
+            self.server,
+            self.server.provider_code,
+            self.server.type,
+        )
+        second_generation = _start_monitoring_observation(
+            self.server,
+            self.server.provider_code,
+            self.server.type,
+        )
+
+        stale_result = _record_monitoring_observation(
+            self.server,
+            self.server.provider_code,
+            self.server.type,
+            'off',
+            make_droplet_metadata(status='off'),
+            timezone.now(),
+            first_generation,
+        )
+
+        self.assertTrue(stale_result['stale'])
+        self.assertEqual(first_generation + 1, second_generation)
+        state = AssetMonitoringState.objects.get(asset_key=self.server.key)
+        self.assertEqual(state.check_generation, second_generation)
+        self.assertIsNone(state.last_checked_at)
 
 
 class SchedulesTestCase(MonitoringFixtureTestCase):
@@ -297,6 +470,16 @@ class SchedulesTestCase(MonitoringFixtureTestCase):
         asset_schedule_create(self.server)
         asset_schedule_create(self.server)
         self.assertEqual(PeriodicTask.objects.filter(name=task_name).count(), 1)
+
+        # A repair/reconcile call fixes a stale existing definition.
+        task = PeriodicTask.objects.get(name=task_name)
+        task.task = 'stale.task'
+        task.enabled = False
+        task.save()
+        asset_schedule_create(self.server)
+        task.refresh_from_db()
+        self.assertEqual(task.task, 'cloudmoo.check_asset_status')
+        self.assertTrue(task.enabled)
 
     def test_save_syncs_schedule_with_monitoring(self):
         task_name = f'asset-{self.server.uuid}'
@@ -333,6 +516,20 @@ class SchedulesTestCase(MonitoringFixtureTestCase):
         cloud_schedule_create(self.cloud)
         cloud_schedule_create(self.cloud)
         self.assertEqual(PeriodicTask.objects.filter(name=task_name).count(), 1)
+
+        self.cloud.status = CoreCloud.Status.INVALID_AUTH
+        cloud_schedule_update(self.cloud)
+        self.assertTrue(PeriodicTask.objects.get(name=task_name).enabled)
+
+    def test_cloud_save_reconciles_schedule_after_status_change(self):
+        task_name = f'cloud-{self.cloud.uuid}'
+        self.cloud.status = CoreCloud.Status.PAUSED
+        self.cloud.save()
+        self.assertFalse(PeriodicTask.objects.get(name=task_name).enabled)
+
+        self.cloud.status = CoreCloud.Status.ACTIVE
+        self.cloud.save()
+        self.assertTrue(PeriodicTask.objects.get(name=task_name).enabled)
 
 
 class PruneStatusLogsTestCase(MonitoringFixtureTestCase):
@@ -376,6 +573,112 @@ class PruneStatusLogsTestCase(MonitoringFixtureTestCase):
         self.assertTrue(AssetStatusLog.objects.filter(pk=recent_log.pk).exists())
         self.assertFalse(AssetStatusEmail.objects.filter(pk=old_email.pk).exists())
         self.assertTrue(AssetStatusEmail.objects.filter(pk=recent_email.pk).exists())
+
+
+class CloudSyncRecoveryTestCase(MonitoringFixtureTestCase):
+    @patch.object(CoreCloud, 'sync_assets')
+    @patch.object(CoreCloud, 'validate', return_value=True)
+    def test_invalid_auth_recovery_syncs_assets_immediately(self, mock_validate, mock_sync_assets):
+        self.cloud.status = CoreCloud.Status.INVALID_AUTH
+        self.cloud.save()
+
+        result = run_cloud_sync(self.cloud)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['current_status'], CoreCloud.Status.ACTIVE)
+        mock_validate.assert_called_once()
+        mock_sync_assets.assert_called_once()
+
+    @patch.object(CoreCloud, 'validate', side_effect=CloudValidationTransientError('provider unavailable'))
+    def test_transient_validation_does_not_disable_monitoring(self, mock_validate):
+        result = run_cloud_sync(self.cloud)
+
+        self.assertFalse(result['success'])
+        self.assertTrue(result['retryable'])
+        self.assertEqual(result['current_status'], CoreCloud.Status.ACTIVE)
+        self.cloud.refresh_from_db()
+        self.assertEqual(self.cloud.status, CoreCloud.Status.ACTIVE)
+        self.assertTrue(
+            PeriodicTask.objects.get(name=f'cloud-{self.cloud.uuid}').enabled
+        )
+        mock_validate.assert_called_once()
+
+
+class EmailRenderingTestCase(MonitoringFixtureTestCase):
+    def test_html_email_escapes_asset_values(self):
+        self.server.name = '<script>alert(1)</script>'
+
+        _text_body, html_body = create_email_body(
+            self.server,
+            current_status='off',
+            previous_status='active',
+            status_timeline=[],
+            metadata_changes=['Name changed from \'safe\' to \'<script>\''],
+        )
+
+        self.assertNotIn('<script>alert(1)</script>', html_body)
+        self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', html_body)
+        self.assertIn('&lt;script&gt;', html_body)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_email_delivery_is_idempotent_for_a_status_event(self):
+        sent = send_status_change_emails(
+            self.server,
+            'active',
+            'off',
+            [],
+            [],
+            event_id=123,
+        )
+        retried = send_status_change_emails(
+            self.server,
+            'active',
+            'off',
+            [],
+            [],
+            event_id=123,
+        )
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(retried, 0)
+        delivery = AssetStatusEmail.objects.get(event_id=123)
+        self.assertEqual(delivery.delivery_status, 'sent')
+        self.assertEqual(delivery.attempt_count, 1)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_pending_outbox_row_is_recovered(self):
+        ensure_status_change_email_outbox(
+            self.server,
+            'active',
+            'off',
+            [],
+            [],
+            event_id=456,
+        )
+
+        delivery = AssetStatusEmail.objects.get(event_id=456)
+        self.assertEqual(delivery.delivery_status, 'pending')
+        self.assertEqual(retry_pending_status_emails(), 1)
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.delivery_status, 'sent')
+        self.assertEqual(delivery.attempt_count, 1)
+
+
+class MetadataRedactionTestCase(TestCase):
+    def test_sensitive_values_are_redacted_recursively(self):
+        metadata = redact_sensitive_metadata({
+            'Environment': {
+                'Variables': {'DB_PASSWORD': 'secret', 'MODE': 'prod'},
+            },
+            'public': {'region': 'us-east-1'},
+            'api_token': 'token-value',
+        })
+
+        self.assertEqual(metadata['Environment']['Variables']['DB_PASSWORD'], '[REDACTED]')
+        self.assertEqual(metadata['Environment']['Variables']['MODE'], '[REDACTED]')
+        self.assertEqual(metadata['public']['region'], 'us-east-1')
+        self.assertEqual(metadata['api_token'], '[REDACTED]')
 
 
 class WebhookSyncTestCase(MonitoringFixtureTestCase):

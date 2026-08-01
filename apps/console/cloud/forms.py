@@ -274,17 +274,17 @@ class CloudEditForm(forms.ModelForm):
 
     def validate_digitalocean_token(self, access_token):
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get('https://api.digitalocean.com/v2/account', headers=headers)
+        response = requests.get('https://api.digitalocean.com/v2/account', headers=headers, timeout=10)
         return response.status_code == 200
 
     def validate_hetzner_token(self, access_token):
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get('https://api.hetzner.cloud/v1/servers', headers=headers)
+        response = requests.get('https://api.hetzner.cloud/v1/servers', headers=headers, timeout=10)
         return response.status_code == 200
 
     def validate_vultr_token(self, access_token):
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get('https://api.vultr.com/v2/account', headers=headers)
+        response = requests.get('https://api.vultr.com/v2/account', headers=headers, timeout=10)
         return response.status_code == 200
 
     def validate_aws(self, access_key, secret_key, region):
@@ -308,14 +308,14 @@ class CloudEditForm(forms.ModelForm):
                 'Authorization': f'Basic {base64.b64encode(f"{username}:{password}".encode()).decode()}',
                 'Content-Type': 'application/json'
             }
-            response = requests.get('https://api.upcloud.com/1.3/account', headers=headers)
+            response = requests.get('https://api.upcloud.com/1.3/account', headers=headers, timeout=10)
             return response.status_code == 200
         except Exception:
             return False
 
     def validate_linode_token(self, access_token):
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get('https://api.linode.com/v4/account', headers=headers)
+        response = requests.get('https://api.linode.com/v4/account', headers=headers, timeout=10)
         return response.status_code == 200
 
     def save(self, commit=True):

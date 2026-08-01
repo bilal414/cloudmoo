@@ -6,7 +6,7 @@ from .models import CoreHetznerAccount, CoreCloud
 from apps.console.account.models import CoreAccount
 from .forms import HetznerConnectForm
 import requests
-from datetime import datetime
+from django.utils import timezone
 
 from ..models import CoreCloudServiceProvider
 
@@ -48,6 +48,6 @@ class ConnectHetznerView(LoginRequiredMixin, View):
             access_token=access_token,
             name=account_name,
             status='active',
-            last_synced=datetime.now()
+            last_synced=timezone.now()
         )
         return hetzner_account
