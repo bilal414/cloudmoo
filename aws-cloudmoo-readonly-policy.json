@@ -2,14 +2,18 @@
     "Version": "2012-10-17",
     "Statement": [
         {
-            "Sid": "EC2ReadOnlyAccess",
+            "Sid": "EC2AndVPCReadOnlyAccess",
             "Effect": "Allow",
             "Action": [
-                "ec2:DescribeInstances",
-                "ec2:DescribeVolumes", 
-                "ec2:DescribeSnapshots",
-                "ec2:DescribeAddresses",
-                "ec2:DescribeSecurityGroups"
+                "ec2:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AutoScalingReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "autoscaling:DescribeAutoScalingGroups"
             ],
             "Resource": "*"
         },
@@ -17,12 +21,12 @@
             "Sid": "RDSReadOnlyAccess",
             "Effect": "Allow",
             "Action": [
-                "rds:DescribeDBInstances"
+                "rds:DescribeDB*"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "LambdaReadOnlyAccess", 
+            "Sid": "LambdaReadOnlyAccess",
             "Effect": "Allow",
             "Action": [
                 "lambda:ListFunctions",
@@ -32,7 +36,7 @@
         },
         {
             "Sid": "DynamoDBReadOnlyAccess",
-            "Effect": "Allow", 
+            "Effect": "Allow",
             "Action": [
                 "dynamodb:ListTables",
                 "dynamodb:DescribeTable"
@@ -45,29 +49,38 @@
             "Action": [
                 "s3:ListAllMyBuckets",
                 "s3:GetBucketLocation",
-                "s3:GetBucketVersioning", 
+                "s3:GetBucketVersioning",
                 "s3:GetEncryptionConfiguration",
                 "s3:GetBucketPublicAccessBlock"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "ACMReadOnlyAccess",
+            "Sid": "CloudWatchReadOnlyAccess",
             "Effect": "Allow",
             "Action": [
-                "acm:ListCertificates",
-                "acm:DescribeCertificate"
+                "cloudwatch:DescribeAlarms",
+                "cloudwatch:ListMetrics",
+                "cloudwatch:GetMetricData",
+                "cloudwatch:GetMetricStatistics"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "ELBReadOnlyAccess",
-            "Effect": "Allow", 
+            "Sid": "CloudWatchLogsReadOnlyAccess",
+            "Effect": "Allow",
             "Action": [
-                "elasticloadbalancing:DescribeLoadBalancers",
-                "elasticloadbalancing:DescribeListeners",
-                "elasticloadbalancing:DescribeTargetGroups",
-                "elasticloadbalancing:DescribeInstanceHealth"
+                "logs:DescribeLogGroups"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECRReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:Describe*",
+                "ecr:List*",
+                "ecr:Scan*"
             ],
             "Resource": "*"
         },
@@ -75,11 +88,89 @@
             "Sid": "ECSReadOnlyAccess",
             "Effect": "Allow",
             "Action": [
-                "ecs:ListClusters",
-                "ecs:ListServices", 
-                "ecs:DescribeServices",
-                "ecs:ListTasks",
-                "ecs:DescribeTasks"
+                "ecs:List*",
+                "ecs:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EKSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "eks:List*",
+                "eks:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AppRunnerReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "apprunner:List*",
+                "apprunner:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ACMReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "acm:List*",
+                "acm:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Route53ReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "route53:List*",
+                "route53:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudFrontReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "cloudfront:List*",
+                "cloudfront:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "WAFv2ReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "wafv2:List*",
+                "wafv2:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "GlobalAcceleratorReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "globalaccelerator:List*",
+                "globalaccelerator:Describe*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BackupReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "backup:List*",
+                "backup:Describe*",
+                "backup:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ELBReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticloadbalancing:Describe*"
             ],
             "Resource": "*"
         },
@@ -92,4 +183,4 @@
             "Resource": "*"
         }
     ]
-} 
+}

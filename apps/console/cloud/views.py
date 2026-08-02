@@ -112,32 +112,70 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
         return CoreCloud.objects.for_user(self.request.user)
 
     def get_aws_asset_categories(self):
-        """Define AWS asset categories for better organization"""
+        """Define shared asset categories for all providers."""
         return {
             'compute': {
                 'name': 'Compute',
                 'icon': 'cpu',
-                'assets': ['servers', 'lambda_functions', 'ecs_services', 'ecs_tasks']
+                'assets': [
+                    'servers', 'apps', 'lambda_functions', 'ecs_services', 'ecs_tasks',
+                    'kubernetes_clusters', 'kubernetes_node_pools',
+                    'lightsail_instances', 'lightsail_container_services',
+                    'lightsail_container_deployments', 'lightsail_container_images',
+                ]
             },
             'storage': {
                 'name': 'Storage',
                 'icon': 'database',
-                'assets': ['volumes', 's3_buckets', 'snapshots']
+                'assets': [
+                    'volumes', 's3_buckets', 'spaces', 'snapshots', 'backups',
+                    'lightsail_disks', 'lightsail_instance_snapshots',
+                    'lightsail_disk_snapshots', 'lightsail_buckets',
+                    'lightsail_auto_snapshots',
+                ]
             },
             'database': {
                 'name': 'Database',
                 'icon': 'table-cells',
-                'assets': ['databases', 'rds_databases', 'dynamodb_tables']
+                'assets': [
+                    'databases', 'rds_databases', 'dynamodb_tables',
+                    'lightsail_databases', 'lightsail_database_snapshots',
+                ]
             },
             'networking': {
                 'name': 'Networking',
                 'icon': 'globe-alt',
-                'assets': ['load_balancers', 'elastic_ips', 'security_groups']
+                'assets': [
+                    'load_balancers', 'elastic_ips', 'reserved_ips', 'security_groups',
+                    'firewalls', 'vpcs', 'vpc_peerings', 'vpc_nat_gateways',
+                    'lightsail_static_ips', 'lightsail_load_balancers',
+                ]
+            },
+            'dns': {
+                'name': 'DNS & Delivery',
+                'icon': 'globe-alt',
+                'assets': [
+                    'domains', 'dns_records', 'cdn_endpoints',
+                    'lightsail_domains', 'lightsail_dns_records',
+                    'lightsail_distributions',
+                ]
             },
             'security': {
                 'name': 'Security',
                 'icon': 'shield-check',
-                'assets': ['acm_certificates']
+                'assets': [
+                    'acm_certificates', 'certificates', 'lightsail_certificates',
+                ]
+            },
+            'registry': {
+                'name': 'Registries',
+                'icon': 'database',
+                'assets': ['container_registries']
+            },
+            'monitoring': {
+                'name': 'Monitoring',
+                'icon': 'chart-bar',
+                'assets': ['lightsail_alarms', 'lightsail_operations']
             }
         }
 
@@ -146,14 +184,7 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
         provider_account = cloud.provider_account
         counts = {}
 
-        # AWS-specific asset types
-        aws_asset_types = [
-            'servers', 'volumes', 'databases', 'rds_databases', 'lambda_functions',
-            'dynamodb_tables', 's3_buckets', 'acm_certificates', 'snapshots',
-            'elastic_ips', 'load_balancers', 'security_groups', 'ecs_services', 'ecs_tasks'
-        ]
-
-        for asset_type in aws_asset_types:
+        for asset_type, _canonical_type in CoreCloud.ASSET_RELATIONS:
             if hasattr(provider_account, asset_type):
                 asset_manager = getattr(provider_account, asset_type)
                 counts[asset_type] = {
@@ -237,16 +268,7 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
         provider_account = cloud.provider_account
         assets = []
 
-        # Get all AWS asset types
-        aws_asset_types = [
-            'servers', 'volumes', 'databases', 'rds_databases', 'lambda_functions',
-            'dynamodb_tables', 's3_buckets', 'acm_certificates', 'snapshots',
-            'elastic_ips', 'load_balancers', 'security_groups', 'ecs_services', 'ecs_tasks'
-        ]
-
-        for asset_type in aws_asset_types:
-            if hasattr(provider_account, asset_type):
-                assets.extend(getattr(provider_account, asset_type).all())
+        assets.extend(asset for asset, _asset_type in cloud.get_all_assets())
 
         # Apply search filter
         search_query = self.request.GET.get('search', '').strip()
@@ -328,6 +350,6 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
             'sort_direction': self.request.GET.get('direction', 'desc'),
             'query_params': query_params.urlencode(),
             'is_aws': cloud.provider.code.lower() == 'aws',
+            'is_digitalocean': cloud.provider.code.lower() == 'digitalocean',
         })
         return context
-

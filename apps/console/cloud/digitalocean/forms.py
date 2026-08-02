@@ -26,6 +26,37 @@ class DigitalOceanConnectForm(forms.Form):
         help_text="You can generate an access token in your DigitalOcean account settings."
     )
 
+    spaces_access_key = forms.CharField(
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+            'placeholder': 'Optional Spaces access key'
+        }),
+        max_length=255,
+        required=False,
+        help_text="Optional: required to inventory and monitor Spaces buckets."
+    )
+
+    spaces_secret_key = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+            'placeholder': 'Optional Spaces secret key'
+        }),
+        max_length=255,
+        required=False,
+        help_text="Optional: create a Spaces access key with bucket read permission."
+    )
+
+    spaces_region = forms.CharField(
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+            'placeholder': 'nyc3'
+        }),
+        max_length=64,
+        required=False,
+        initial='nyc3',
+        help_text="Optional Spaces endpoint region, for example nyc3 or sfo3."
+    )
+
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)

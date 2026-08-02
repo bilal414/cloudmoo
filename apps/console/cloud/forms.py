@@ -85,8 +85,34 @@ class CloudEditForm(forms.ModelForm):
                 }),
                 required=False
             )
+            self.fields['spaces_access_key'] = forms.CharField(
+                widget=forms.TextInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'Optional Spaces access key'
+                }),
+                required=False,
+                help_text='Optional: required to inventory and monitor Spaces buckets.'
+            )
+            self.fields['spaces_secret_key'] = forms.CharField(
+                widget=forms.PasswordInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'Leave blank to keep the existing Spaces secret key'
+                }),
+                required=False,
+                help_text='Optional S3-compatible Spaces secret key.'
+            )
+            self.fields['spaces_region'] = forms.CharField(
+                widget=forms.TextInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'nyc3'
+                }),
+                required=False,
+                help_text='Spaces endpoint region, for example nyc3 or sfo3.'
+            )
             if self.instance.digitalocean.exists():
                 self.fields['access_token'].initial = self.instance.digitalocean.first().access_token
+                self.fields['spaces_access_key'].initial = self.instance.digitalocean.first().spaces_access_key
+                self.fields['spaces_region'].initial = self.instance.digitalocean.first().spaces_region
         elif self.instance.provider.code == 'hetzner':
             self.fields['access_token'] = forms.CharField(
                 widget=forms.TextInput(attrs={
@@ -327,16 +353,31 @@ class CloudEditForm(forms.ModelForm):
         region = self.cleaned_data.get('region')
         username = self.cleaned_data.get('username')
         password = self.cleaned_data.get('password')
+        spaces_access_key = self.cleaned_data.get('spaces_access_key')
+        spaces_secret_key = self.cleaned_data.get('spaces_secret_key')
+        spaces_region = self.cleaned_data.get('spaces_region')
 
         if self.instance.provider.code == 'digitalocean':
             do_account, created = CoreDigitalOceanAccount.objects.get_or_create(
                 cloud=cloud,
-                defaults={'access_token': access_token, 'name': name}
+                defaults={
+                    'access_token': access_token,
+                    'name': name,
+                    'spaces_access_key': spaces_access_key or '',
+                    'spaces_secret_key': spaces_secret_key or '',
+                    'spaces_region': spaces_region or 'nyc3',
+                }
             )
             if not created:
                 do_account.name = name
                 if access_token:
                     do_account.access_token = access_token
+                if spaces_access_key:
+                    do_account.spaces_access_key = spaces_access_key
+                if spaces_secret_key:
+                    do_account.spaces_secret_key = spaces_secret_key
+                if spaces_region:
+                    do_account.spaces_region = spaces_region
                 do_account.save()
 
         elif self.instance.provider.code == 'hetzner':

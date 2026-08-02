@@ -26,7 +26,10 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
                 do_account = self.create_account(
                     user=request.user,
                     account_name=form.cleaned_data['account_name'],
-                    access_token=form.cleaned_data['access_token']
+                    access_token=form.cleaned_data['access_token'],
+                    spaces_access_key=form.cleaned_data.get('spaces_access_key', ''),
+                    spaces_secret_key=form.cleaned_data.get('spaces_secret_key', ''),
+                    spaces_region=form.cleaned_data.get('spaces_region') or 'nyc3',
                 )
                 do_account.sync_assets()
                 messages.success(request, 'DigitalOcean account connected successfully!')
@@ -35,7 +38,15 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
                 messages.error(request, f'Error connecting DigitalOcean account: {str(e)}')
         return render(request, self.template_name, {'form': form})
 
-    def create_account(self, user, account_name, access_token):
+    def create_account(
+        self,
+        user,
+        account_name,
+        access_token,
+        spaces_access_key='',
+        spaces_secret_key='',
+        spaces_region='nyc3',
+    ):
         # Create CoreCloud
         core_cloud = CoreCloud.objects.create(
             account=user.member.active_account,
@@ -46,6 +57,9 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
         do_account = CoreDigitalOceanAccount.objects.create(
             cloud=core_cloud,
             access_token=access_token,
+            spaces_access_key=spaces_access_key,
+            spaces_secret_key=spaces_secret_key,
+            spaces_region=spaces_region or 'nyc3',
             name=account_name,
             status='active',
             last_synced=timezone.now()

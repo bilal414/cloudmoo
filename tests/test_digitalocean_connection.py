@@ -1,7 +1,12 @@
 from django.test import TestCase
 from django.contrib.auth.models import User
 from unittest.mock import patch, Mock
-from apps.console.cloud.models import CloudValidationTransientError, CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.models import (
+    CloudInventoryTransientError,
+    CloudValidationTransientError,
+    CoreCloud,
+    CoreCloudServiceProvider,
+)
 from apps.console.cloud.digitalocean.models import CoreDigitalOceanAccount
 from apps.console.account.models import CoreAccount
 from tests.utils import CloudTestMixin, TestAccountManager, skip_if_no_real_credentials
@@ -106,6 +111,99 @@ class DigitalOceanConnectionTestCase(CloudTestMixin, TestCase):
 
         with self.assertRaises(CloudValidationTransientError):
             do_account.validate()
+
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_pagination_accepts_empty_links_when_meta_total_is_reached(self, mock_get):
+        do_account = CoreDigitalOceanAccount.objects.create(
+            cloud=self.cloud,
+            name="Test DO Account",
+            access_token="valid_token",
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'droplets': [{'id': 123, 'name': 'test-droplet'}],
+            'links': {},
+            'meta': {'total': 1},
+        }
+        mock_get.return_value = response
+
+        self.assertEqual(
+            do_account._paginate_api_call('droplets'),
+            [{'id': 123, 'name': 'test-droplet'}],
+        )
+        mock_get.assert_called_once_with(
+            'https://api.digitalocean.com/v2/droplets',
+            headers={'Authorization': 'Bearer valid_token'},
+            timeout=15,
+        )
+
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_pagination_rejects_empty_links_when_meta_total_is_incomplete(self, mock_get):
+        do_account = CoreDigitalOceanAccount.objects.create(
+            cloud=self.cloud,
+            name="Test DO Account",
+            access_token="valid_token",
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'droplets': [{'id': 123, 'name': 'test-droplet'}],
+            'links': {},
+            'meta': {'total': 2},
+        }
+        mock_get.return_value = response
+
+        with self.assertRaises(CloudInventoryTransientError):
+            do_account._paginate_api_call('droplets')
+
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_unpaginated_nested_collection_can_explicitly_omit_meta(self, mock_get):
+        do_account = CoreDigitalOceanAccount.objects.create(
+            cloud=self.cloud,
+            name="Test DO Account",
+            access_token="valid_token",
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'node_pools': [{'id': 'pool-1', 'name': 'default'}],
+        }
+        mock_get.return_value = response
+
+        self.assertEqual(
+            do_account._paginate_api_call(
+                'kubernetes/clusters/cluster-1/node_pools',
+                collection_key='node_pools',
+                allow_unpaginated=True,
+            ),
+            [{'id': 'pool-1', 'name': 'default'}],
+        )
+
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_nat_gateway_collection_accepts_provider_null_when_total_is_zero(self, mock_get):
+        do_account = CoreDigitalOceanAccount.objects.create(
+            cloud=self.cloud,
+            name="Test DO Account",
+            access_token="valid_token",
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'vpc_nat_gateways': None,
+            'links': {},
+            'meta': {'total': 0},
+        }
+        mock_get.return_value = response
+
+        self.assertEqual(
+            do_account._paginate_api_call(
+                'vpc_nat_gateways',
+                collection_key='vpc_nat_gateways',
+                allow_null_empty=True,
+            ),
+            [],
+        )
 
     def test_access_token_property(self):
         account_config = self.get_test_account('digitalocean', 'valid')

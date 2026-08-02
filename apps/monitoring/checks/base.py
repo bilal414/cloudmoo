@@ -34,6 +34,7 @@ def classify_aws_error(error):
         'InvalidVolume.NotFound',
         'DBInstanceNotFound',
         'ResourceNotFoundException',
+        'NotFoundException',
         'InvalidSnapshot.NotFound',
         'InvalidAddress.NotFound',
         'InvalidAllocationID.NotFound',
