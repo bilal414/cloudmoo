@@ -25,6 +25,8 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 
 import requests
+import boto3
+from botocore.config import Config
 from django.db import models
 
 from apps.console.cloud.models import (
@@ -43,6 +45,13 @@ HETZNER_CONSOLE_BASE = "https://console.hetzner.cloud"
 HETZNER_DEFAULT_PER_PAGE = 50
 HETZNER_MAX_PAGES = 100
 HETZNER_TIMEOUT_SECONDS = 15
+OBJECT_STORAGE_REGIONS = frozenset({"fsn1", "nbg1", "hel1"})
+OBJECT_STORAGE_CLIENT_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=15,
+    retries={"mode": "standard", "max_attempts": 2},
+    signature_version="s3v4",
+)
 
 
 class _HetznerResourceSpec:
@@ -56,6 +65,7 @@ class _HetznerResourceSpec:
         "identifier_fields",
         "name_fields",
         "asset_type",
+        "monitoring_default",
     )
 
     def __init__(
@@ -67,6 +77,7 @@ class _HetznerResourceSpec:
         identifier_fields: Sequence[str] = ("id",),
         name_fields: Sequence[str] = ("name",),
         asset_type: str | None = None,
+        monitoring_default: str | None = None,
     ) -> None:
         self.key = key
         self.endpoint = endpoint
@@ -75,6 +86,7 @@ class _HetznerResourceSpec:
         self.identifier_fields = tuple(identifier_fields)
         self.name_fields = tuple(name_fields)
         self.asset_type = asset_type or key
+        self.monitoring_default = monitoring_default or UtilAsset.Monitoring.ACTIVE
 
     def __repr__(self) -> str:  # pragma: no cover - useful only while debugging
         return f"HetznerResourceSpec({self.key!r}, endpoint={self.endpoint!r})"
@@ -259,6 +271,87 @@ class CoreHetznerISO(CoreHetznerResource):
         constraints = [_owner_uid_constraint("iso")]
 
 
+class CoreHetznerSSHKey(CoreHetznerResource):
+    provider_type = "hetzner_ssh_key"
+    asset_type = "ssh_key"
+    api_endpoint = "ssh_keys"
+
+    class Meta:
+        db_table = "core_hetzner_ssh_key"
+        constraints = [_owner_uid_constraint("ssh_key")]
+
+
+class CoreHetznerLoadBalancerType(CoreHetznerResource):
+    provider_type = "hetzner_load_balancer_type"
+    asset_type = "load_balancer_type"
+    api_endpoint = "load_balancer_types"
+
+    class Meta:
+        db_table = "core_hetzner_load_balancer_type"
+        constraints = [_owner_uid_constraint("load_balancer_type")]
+
+
+class CoreHetznerZone(CoreHetznerResource):
+    provider_type = "hetzner_zone"
+    asset_type = "zone"
+    api_endpoint = "zones"
+
+    class Meta:
+        db_table = "core_hetzner_zone"
+        constraints = [_owner_uid_constraint("zone")]
+
+
+class CoreHetznerRRSet(CoreHetznerResource):
+    provider_type = "hetzner_rrset"
+    asset_type = "rrset"
+    api_endpoint = "zones"
+
+    @property
+    def monitoring_credentials(self) -> dict[str, Any]:
+        credentials = super().monitoring_credentials
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        credentials.update({
+            "zone_id": metadata.get("_cloudmoo_zone_id"),
+            "rr_name": metadata.get("_cloudmoo_rr_name"),
+            "rr_type": metadata.get("_cloudmoo_rr_type"),
+        })
+        return credentials
+
+    class Meta:
+        db_table = "core_hetzner_rrset"
+        constraints = [_owner_uid_constraint("rrset")]
+
+
+class CoreHetznerObjectStorageBucket(CoreHetznerResource):
+    """Optional S3-compatible Object Storage bucket inventory."""
+
+    provider_type = "hetzner_object_storage_bucket"
+    asset_type = UtilAsset.Type.OBJECT_STORAGE
+    api_endpoint = "object-storage"
+
+    @property
+    def provider_url(self) -> str:
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        region = str(
+            metadata.get("region") or self.owner.object_storage_region or "fsn1"
+        ).strip().lower()
+        return f"https://console.hetzner.cloud/object-storage/{region}/{quote(self.unique_id, safe='')}"
+
+    @property
+    def monitoring_credentials(self) -> dict[str, Any]:
+        credentials = self.owner.object_storage_credentials
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        region = metadata.get("region")
+        if isinstance(region, str) and region.strip().lower() in OBJECT_STORAGE_REGIONS:
+            credentials["region"] = region.strip().lower()
+        credentials.update({"bucket": self.unique_id})
+        return credentials
+
+    class Meta:
+        db_table = "core_hetzner_object_storage_bucket"
+        constraints = [_owner_uid_constraint("object_storage_bucket")]
+
+
 class CoreHetznerAction(CoreHetznerResource):
     provider_type = "hetzner_action"
     asset_type = "action"
@@ -290,6 +383,11 @@ HETZNER_RESOURCE_MODELS = {
     "datacenter": CoreHetznerDatacenter,
     "server_type": CoreHetznerServerType,
     "iso": CoreHetznerISO,
+    "ssh_key": CoreHetznerSSHKey,
+    "load_balancer_type": CoreHetznerLoadBalancerType,
+    "zone": CoreHetznerZone,
+    "rrset": CoreHetznerRRSet,
+    "object_storage": CoreHetznerObjectStorageBucket,
     "action": CoreHetznerAction,
 }
 
@@ -342,10 +440,12 @@ HETZNER_RESOURCE_SPECS = {
         name_fields=("name", "type"),
     ),
     "location": HetznerResourceSpec(
-        "location", "locations", "locations", CoreHetznerLocation
+        "location", "locations", "locations", CoreHetznerLocation,
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
     ),
     "datacenter": HetznerResourceSpec(
-        "datacenter", "datacenters", "datacenters", CoreHetznerDatacenter
+        "datacenter", "datacenters", "datacenters", CoreHetznerDatacenter,
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
     ),
     "server_type": HetznerResourceSpec(
         "server_type",
@@ -353,18 +453,51 @@ HETZNER_RESOURCE_SPECS = {
         "server_types",
         CoreHetznerServerType,
         name_fields=("name", "description"),
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
     ),
     "iso": HetznerResourceSpec(
-        "iso", "isos", "isos", CoreHetznerISO, name_fields=("name", "description")
+        "iso", "isos", "isos", CoreHetznerISO, name_fields=("name", "description"),
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
     ),
-    "action": HetznerResourceSpec(
-        "action",
-        "actions",
-        "actions",
-        CoreHetznerAction,
-        name_fields=("command", "status", "progress"),
+    "ssh_key": HetznerResourceSpec(
+        "ssh_key", "ssh_keys", "ssh_keys", CoreHetznerSSHKey,
+        name_fields=("name", "fingerprint"),
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
+    ),
+    "load_balancer_type": HetznerResourceSpec(
+        "load_balancer_type", "load_balancer_types", "load_balancer_types",
+        CoreHetznerLoadBalancerType, name_fields=("name", "description"),
+        monitoring_default=UtilAsset.Monitoring.DISABLED,
+    ),
+    "zone": HetznerResourceSpec(
+        "zone", "zones", "zones", CoreHetznerZone, name_fields=("name", "mode"),
+    ),
+    "rrset": HetznerResourceSpec(
+        "rrset", "zones", "rrsets", CoreHetznerRRSet,
+        identifier_fields=("_cloudmoo_identifier",),
+        name_fields=("name", "type"),
     ),
 }
+
+# Action history is intentionally not a normal inventory family.  Hetzner
+# removed unfiltered global action listing; callers may reconcile explicitly
+# supplied action records from a controlled test ledger, but the account sync
+# must never issue GET /actions without known IDs.
+HETZNER_ACTION_SPEC = HetznerResourceSpec(
+    "action",
+    "actions",
+    "actions",
+    CoreHetznerAction,
+    name_fields=("command", "status", "progress"),
+)
+HETZNER_OBJECT_STORAGE_SPEC = HetznerResourceSpec(
+    "object_storage",
+    "object-storage",
+    "Buckets",
+    CoreHetznerObjectStorageBucket,
+    identifier_fields=("Name",),
+    name_fields=("Name",),
+)
 
 # Short public alias used by integration code.
 RESOURCE_SPECS = HETZNER_RESOURCE_SPECS
@@ -588,6 +721,27 @@ def _normalized_record(item: Any, spec: _HetznerResourceSpec) -> dict[str, Any]:
     # Copy before adding adapter metadata so the caller's mocked/provider
     # payload is never mutated during normalization.
     raw = copy.deepcopy(item)
+    if spec.key == "ssh_key":
+        # The public key is not a credential, but CloudMoo only needs its
+        # fingerprint and labels for inventory/audit. Do not persist complete
+        # key material or future provider-added fields.
+        raw = {
+            key: raw[key]
+            for key in ("id", "name", "fingerprint", "labels", "created")
+            if key in raw
+        }
+    elif spec.key == "certificate":
+        # Uploaded certificate responses may contain PEM material. Keep only
+        # lifecycle/ownership fields; private key material is never stored.
+        raw = {
+            key: raw[key]
+            for key in (
+                "id", "name", "type", "status", "domains", "labels",
+                "protection", "created", "not_valid_before", "not_valid_after",
+                "expires_at", "sha1_fingerprint", "algorithm",
+            )
+            if key in raw
+        }
     identifier = _extract_identifier(raw, spec.identifier_fields, spec.key)
     metadata = redact_sensitive_metadata(raw)
     if not isinstance(metadata, dict):  # defensive: raw was already checked
@@ -618,6 +772,8 @@ def resource_spec(resource: str | _HetznerResourceSpec) -> _HetznerResourceSpec:
     if not isinstance(resource, str):
         raise CloudInventoryTransientError("Hetzner resource type is invalid")
     key = resource.strip().lower()
+    if key in {"action", "actions"}:
+        return HETZNER_ACTION_SPEC
     spec = HETZNER_RESOURCE_SPECS.get(key)
     if spec is None:
         # Accept API endpoint names as a convenience for parent sync code.
@@ -639,6 +795,14 @@ def collect_hetzner_resource_records(
 ) -> list[dict[str, Any]]:
     """Fetch and normalize one complete resource family without DB writes."""
     spec = resource_spec(resource)
+    if spec.key == "action":
+        raise CloudInventoryTransientError(
+            "Hetzner action inventory requires explicit action IDs"
+        )
+    if spec.key == "rrset":
+        raise CloudInventoryTransientError(
+            "Hetzner RRSet inventory requires a parent zone context"
+        )
     records: list[dict[str, Any]] = []
     identifiers: set[str] = set()
     for item in iter_hetzner_collection(
@@ -655,6 +819,57 @@ def collect_hetzner_resource_records(
         identifiers.add(identifier)
         records.append(record)
     return records
+
+
+def collect_hetzner_action_record(
+    account: Any,
+    action_id: str | int,
+) -> dict[str, Any]:
+    """Fetch one explicitly identified Action without global enumeration."""
+    if isinstance(action_id, bool) or not isinstance(action_id, (str, int)):
+        raise CloudInventoryTransientError("Hetzner action identifier is invalid")
+    normalized_id = str(action_id).strip()
+    if not normalized_id or len(normalized_id) > 255:
+        raise CloudInventoryTransientError("Hetzner action identifier is invalid")
+    payload = _request_json(
+        account,
+        f"actions/{quote(normalized_id, safe='')}",
+    )
+    action = payload.get("action")
+    if not isinstance(action, dict):
+        raise CloudInventoryTransientError("Hetzner returned an invalid action response")
+    record = _normalized_record(action, HETZNER_ACTION_SPEC)
+    if record["unique_id"] != normalized_id:
+        raise CloudInventoryTransientError("Hetzner action response identifier mismatch")
+    return record
+
+
+def sync_hetzner_action(
+    account: CoreHetznerAccount,
+    action_id: str | int,
+) -> int:
+    """Persist one known Action without treating it as a complete collection."""
+    record = collect_hetzner_action_record(account, action_id)
+    model = HETZNER_ACTION_SPEC.model
+    defaults = {
+        "name": str(record["name"])[:100],
+        "monitoring": HETZNER_ACTION_SPEC.monitoring_default,
+        "type": HETZNER_ACTION_SPEC.asset_type,
+        "metadata": redact_sensitive_metadata(record["metadata"]),
+    }
+    asset, created = model.objects.get_or_create(
+        owner=account,
+        unique_id=record["unique_id"],
+        defaults=defaults,
+    )
+    if not created:
+        asset.name = defaults["name"]
+        asset.type = defaults["type"]
+        asset.metadata = defaults["metadata"]
+        if asset.monitoring == model.Monitoring.NO_LONGER_EXISTS:
+            asset.monitoring = model.Monitoring.ACTIVE
+        asset.save()
+    return 1
 
 
 def collect_hetzner_inventory(
@@ -675,19 +890,99 @@ def collect_hetzner_inventory(
     keys = [spec.key for spec in selected]
     if len(keys) != len(set(keys)):
         raise CloudInventoryTransientError("Hetzner inventory contains duplicate resource families")
+    if any(spec.key == "action" for spec in selected):
+        raise CloudInventoryTransientError(
+            "Hetzner action inventory requires explicit action IDs"
+        )
 
     # This intentionally completes every read before any model manager is
-    # touched.  A later malformed family therefore cannot partially reconcile
+    # touched. A later malformed family therefore cannot partially reconcile
     # an earlier family in the same account sync.
-    return {
-        spec.key: collect_hetzner_resource_records(
+    result: dict[str, list[dict[str, Any]]] = {}
+    wants_rrsets = any(spec.key == "rrset" for spec in selected)
+    if wants_rrsets and not any(spec.key == "zone" for spec in selected):
+        raise CloudInventoryTransientError(
+            "Hetzner RRSet inventory requires the parent zone collection"
+        )
+
+    for spec in selected:
+        if spec.key == "rrset":
+            continue
+        result[spec.key] = collect_hetzner_resource_records(
             account,
             spec,
             per_page=per_page,
             max_pages=max_pages,
         )
-        for spec in selected
-    }
+
+    if wants_rrsets:
+        zones = result.get("zone", [])
+        rrset_records: list[dict[str, Any]] = []
+        secondary_zone_seen = False
+        for zone in zones:
+            zone_metadata = zone.get("metadata") if isinstance(zone, dict) else None
+            mode = zone_metadata.get("mode") if isinstance(zone_metadata, dict) else None
+            if mode not in {"primary", "secondary"}:
+                raise CloudInventoryTransientError(
+                    "Hetzner returned a zone without a valid mode"
+                )
+            if mode == "secondary":
+                # RRSet reads are not supported for secondary zones. Do not
+                # reconcile any RRSet family when visibility is partial.
+                secondary_zone_seen = True
+                break
+
+            zone_id = zone["unique_id"]
+            rrsets = list_hetzner_collection(
+                account,
+                f"zones/{quote(str(zone_id), safe='')}/rrsets",
+                "rrsets",
+                per_page=100,
+                max_pages=max_pages,
+            )
+            for rrset in rrsets:
+                if not isinstance(rrset, dict):
+                    raise CloudInventoryTransientError(
+                        "Hetzner returned an invalid RRSet object"
+                    )
+                rr_name = rrset.get("name")
+                rr_type = rrset.get("type")
+                records = rrset.get("records")
+                if (
+                    not isinstance(rr_name, str)
+                    or not rr_name.strip()
+                    or not isinstance(rr_type, str)
+                    or not rr_type.strip()
+                    or not isinstance(records, list)
+                ):
+                    raise CloudInventoryTransientError(
+                        "Hetzner returned an invalid RRSet object"
+                    )
+                identifier = f"{zone_id}:{rr_name}:{rr_type}"
+                if len(identifier) > 255:
+                    raise CloudInventoryTransientError(
+                        "Hetzner returned an oversized RRSet identifier"
+                    )
+                metadata = redact_sensitive_metadata(copy.deepcopy(rrset))
+                metadata.update({
+                    "_cloudmoo_zone_id": str(zone_id),
+                    "_cloudmoo_rr_name": rr_name,
+                    "_cloudmoo_rr_type": rr_type,
+                    "_cloudmoo_identifier": identifier,
+                })
+                rrset_records.append({
+                    "unique_id": identifier,
+                    "name": f"{rr_name} {rr_type}"[:100],
+                    "metadata": metadata,
+                    "raw": copy.deepcopy(metadata),
+                })
+
+        # A secondary zone means the complete RRSet collection is not
+        # observable through this API. Omit the family so existing RRsets are
+        # preserved rather than falsely marked as absent.
+        if not secondary_zone_seen:
+            result["rrset"] = rrset_records
+    return result
 
 
 def _sync_records(
@@ -703,7 +998,7 @@ def _sync_records(
         current_ids.append(identifier)
         defaults = {
             "name": str(record["name"])[:100],
-            "monitoring": model.Monitoring.ACTIVE,
+            "monitoring": spec.monitoring_default,
             "type": spec.asset_type,
             "metadata": redact_sensitive_metadata(record["metadata"]),
         }
@@ -719,7 +1014,7 @@ def _sync_records(
             # Explicitly disabled assets remain disabled; only a previously
             # absent resource is revived after it appears in a full listing.
             if asset.monitoring == model.Monitoring.NO_LONGER_EXISTS:
-                asset.monitoring = model.Monitoring.ACTIVE
+                asset.monitoring = spec.monitoring_default
             asset.save()
 
     # An empty list is authoritative only because collection retrieval and
@@ -740,6 +1035,10 @@ def sync_hetzner_resource(
 ) -> int:
     """Fetch (unless supplied) and reconcile one resource family."""
     spec = resource_spec(resource)
+    if spec.key == "action" and records is None:
+        raise CloudInventoryTransientError(
+            "Hetzner action inventory requires explicit action records"
+        )
     validated_records = (
         collect_hetzner_resource_records(
             account,
@@ -793,6 +1092,104 @@ def sync_hetzner_resources(
 
 # Names that read naturally in a provider account's ``sync_assets`` method.
 sync_hetzner_assets = sync_hetzner_resources
+sync_hetzner_inventory_assets = sync_hetzner_resources
+
+
+def _object_storage_client(account: CoreHetznerAccount):
+    region = str(account.object_storage_region or "").strip().lower()
+    if region not in OBJECT_STORAGE_REGIONS:
+        raise CloudInventoryTransientError(
+            "Hetzner Object Storage region is unsupported"
+        )
+    if not account.object_storage_configured:
+        raise CloudInventoryTransientError(
+            "Hetzner Object Storage credentials are unavailable"
+        )
+    return boto3.client(
+        "s3",
+        region_name="us-east-1",
+        endpoint_url=f"https://{region}.your-objectstorage.com",
+        aws_access_key_id=account.object_storage_access_key,
+        aws_secret_access_key=account.object_storage_secret_key,
+        config=OBJECT_STORAGE_CLIENT_CONFIG,
+    )
+
+
+def sync_hetzner_object_storage_assets(account: CoreHetznerAccount) -> int:
+    """Inventory Object Storage buckets without reading object contents.
+
+    Hetzner exposes Object Storage through S3 rather than the Cloud API. The
+    optional credentials are therefore independent from the Cloud token. If
+    they are absent, existing local bucket assets are disabled (not marked
+    deleted) so a temporary configuration gap cannot erase inventory.
+    """
+    model = CoreHetznerObjectStorageBucket
+    if not account.object_storage_configured:
+        # Use model saves instead of a bulk update so any existing monitoring
+        # schedule is disabled consistently with a user-driven edit. Do not
+        # mark the provider buckets missing: the optional credential gap is a
+        # local configuration state, not evidence that a bucket was deleted.
+        for asset in model.objects.filter(owner=account).exclude(
+            monitoring=model.Monitoring.NO_LONGER_EXISTS
+        ):
+            asset.monitoring = model.Monitoring.DISABLED
+            asset.save(update_fields=["monitoring"])
+        return 0
+
+    try:
+        region = str(account.object_storage_region).strip().lower()
+        response = _object_storage_client(account).list_buckets()
+        buckets = response.get("Buckets") if isinstance(response, dict) else None
+        if not isinstance(buckets, list):
+            raise CloudInventoryTransientError(
+                "Hetzner Object Storage returned an invalid bucket collection"
+            )
+        records = []
+        for bucket in buckets:
+            if not isinstance(bucket, dict) or not isinstance(bucket.get("Name"), str):
+                raise CloudInventoryTransientError(
+                    "Hetzner Object Storage returned an invalid bucket"
+                )
+            name = bucket["Name"].strip()
+            if not name or len(name) > 255:
+                raise CloudInventoryTransientError(
+                    "Hetzner Object Storage returned an invalid bucket name"
+                )
+            bucket_region = bucket.get("BucketRegion") or bucket.get("Region") or region
+            if not isinstance(bucket_region, str):
+                raise CloudInventoryTransientError(
+                    "Hetzner Object Storage returned an invalid bucket region"
+                )
+            bucket_region = bucket_region.strip().lower()
+            if bucket_region not in OBJECT_STORAGE_REGIONS:
+                raise CloudInventoryTransientError(
+                    "Hetzner Object Storage returned an unsupported bucket region"
+                )
+            created = bucket.get("CreationDate")
+            if hasattr(created, "isoformat"):
+                created = created.isoformat()
+            metadata = {
+                "Name": name,
+                "CreationDate": created,
+                "region": bucket_region,
+                "endpoint": f"https://{bucket_region}.your-objectstorage.com",
+            }
+            records.append({
+                "unique_id": name,
+                "name": name[:100],
+                "metadata": redact_sensitive_metadata(metadata),
+                "raw": redact_sensitive_metadata(metadata),
+            })
+        return _sync_records(account, HETZNER_OBJECT_STORAGE_SPEC, records)
+    except CloudInventoryTransientError:
+        raise
+    except Exception as error:
+        # Never interpolate the boto exception; S3 clients may include signed
+        # request material or endpoint credentials in their string form.
+        logger.warning("Hetzner Object Storage inventory failed: %s", type(error).__name__)
+        raise CloudInventoryTransientError(
+            "Hetzner Object Storage inventory temporarily unavailable"
+        ) from error
 
 
 __all__ = [
@@ -816,14 +1213,25 @@ __all__ = [
     "CoreHetznerDatacenter",
     "CoreHetznerServerType",
     "CoreHetznerISO",
+    "CoreHetznerSSHKey",
+    "CoreHetznerLoadBalancerType",
+    "CoreHetznerZone",
+    "CoreHetznerRRSet",
+    "CoreHetznerObjectStorageBucket",
     "CoreHetznerAction",
+    "HETZNER_ACTION_SPEC",
+    "HETZNER_OBJECT_STORAGE_SPEC",
     "iter_hetzner_collection",
     "list_hetzner_collection",
     "paginate_hetzner_collection",
     "fetch_hetzner_collection",
     "collect_hetzner_resource_records",
+    "collect_hetzner_action_record",
     "collect_hetzner_inventory",
+    "sync_hetzner_action",
     "sync_hetzner_resource",
     "sync_hetzner_resources",
     "sync_hetzner_assets",
+    "sync_hetzner_inventory_assets",
+    "sync_hetzner_object_storage_assets",
 ]

@@ -213,6 +213,12 @@ def get_check_function(provider, asset_type):
             raise ValueError(
                 f"Unsupported provider or asset type: {provider_name}, {normalized_type}"
             )
+    elif provider_name == "hetzner":
+        # Route every Hetzner family, including the historical server/volume
+        # assets, through one bounded and redacting registry. This prevents
+        # the legacy checker from returning raw provider exceptions or
+        # provider-specific lifecycle strings to the monitoring engine.
+        module_name = "apps.monitoring.checks.hetzner_resources"
     else:
         module_name = f"apps.monitoring.checks.{provider_name}"
 
@@ -220,6 +226,9 @@ def get_check_function(provider, asset_type):
         provider_module = importlib.import_module(module_name)
         if provider_name == "aws":
             check = _lookup_check(provider_module, provider_name, normalized_type)
+        elif provider_name == "hetzner" and module_name.endswith("hetzner_resources"):
+            resolver = getattr(provider_module, "get_hetzner_check_function", None)
+            check = resolver(normalized_type) if callable(resolver) else None
         else:
             check = getattr(
                 provider_module,

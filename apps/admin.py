@@ -12,6 +12,7 @@ from apps.console.cloud.digitalocean.models import (
 from apps.console.cloud.hetzner.models import (
     CoreHetznerAccount, CoreHetznerServer, CoreHetznerVolume
 )
+from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.vultr.models import (
     CoreVultrAccount, CoreVultrServer, CoreVultrDatabase, CoreVultrVolume
 )
@@ -176,6 +177,16 @@ class CoreHetznerVolumeAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'monitoring', 'type')
     list_filter = ('monitoring', 'type')
     search_fields = ('name', 'unique_id')
+
+
+class CoreHetznerInventoryAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _hetzner_asset_model in HETZNER_RESOURCE_MODELS.values():
+    admin.site.register(_hetzner_asset_model, CoreHetznerInventoryAssetAdmin)
 
 
 # Vultr Admin

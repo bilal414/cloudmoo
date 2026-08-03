@@ -59,6 +59,7 @@ from apps.console.cloud.digitalocean.models import (
     CoreDigitalOceanVolume,
 )
 from apps.console.cloud.hetzner.models import CoreHetznerVolume, CoreHetznerServer
+from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.linode.models import CoreLinodeServer, CoreLinodeVolume
 from apps.console.cloud.models import CoreCloudServiceProvider
 from apps.console.cloud.upcloud.models import CoreUpCloudServer, CoreUpCloudVolume
@@ -230,6 +231,7 @@ class AssetDetailView(DetailView):
             'hetzner': {
                 'server': CoreHetznerServer,
                 'volume': CoreHetznerVolume,
+                **HETZNER_RESOURCE_MODELS,
             },
             'aws': {
                 'server': CoreAWSInstance,

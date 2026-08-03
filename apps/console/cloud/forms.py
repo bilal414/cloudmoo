@@ -121,8 +121,35 @@ class CloudEditForm(forms.ModelForm):
                 }),
                 required=False
             )
+            self.fields['object_storage_access_key'] = forms.CharField(
+                widget=forms.TextInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'Optional Hetzner Object Storage access key'
+                }),
+                required=False,
+                help_text='Optional: required to inventory Hetzner Object Storage buckets.'
+            )
+            self.fields['object_storage_secret_key'] = forms.CharField(
+                widget=forms.PasswordInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'Leave blank to keep the existing Object Storage secret key'
+                }),
+                required=False,
+                help_text='Optional S3-compatible Object Storage secret key.'
+            )
+            self.fields['object_storage_region'] = forms.CharField(
+                widget=forms.TextInput(attrs={
+                    'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+                    'placeholder': 'fsn1'
+                }),
+                required=False,
+                help_text='Object Storage endpoint region: fsn1, nbg1, or hel1.'
+            )
             if self.instance.hetzner.exists():
-                self.fields['access_token'].initial = self.instance.hetzner.first().access_token
+                hetzner_account = self.instance.hetzner.first()
+                self.fields['access_token'].initial = hetzner_account.access_token
+                self.fields['object_storage_access_key'].initial = hetzner_account.object_storage_access_key
+                self.fields['object_storage_region'].initial = hetzner_account.object_storage_region
         elif self.instance.provider.code == 'vultr':
             self.fields['access_token'] = forms.CharField(
                 widget=forms.TextInput(attrs={
@@ -203,6 +230,20 @@ class CloudEditForm(forms.ModelForm):
 
         if not name:
             self.add_error('name', "Name is required.")
+
+        if self.instance.provider.code == 'hetzner':
+            object_storage_access_key = cleaned_data.get('object_storage_access_key')
+            object_storage_secret_key = cleaned_data.get('object_storage_secret_key')
+            object_storage_region = (cleaned_data.get('object_storage_region') or '').strip().lower()
+            existing_hetzner = self.instance.hetzner.first() if self.instance.pk and self.instance.hetzner.exists() else None
+            existing_object_storage_secret = getattr(existing_hetzner, 'object_storage_secret_key', '')
+            if object_storage_access_key or object_storage_secret_key:
+                if not object_storage_access_key:
+                    self.add_error('object_storage_access_key', 'Object Storage access key is required when configuring Object Storage.')
+                if not object_storage_secret_key and not existing_object_storage_secret:
+                    self.add_error('object_storage_secret_key', 'Object Storage secret key is required when configuring Object Storage.')
+            if object_storage_region and object_storage_region not in {'fsn1', 'nbg1', 'hel1'}:
+                self.add_error('object_storage_region', 'Use a supported Object Storage region: fsn1, nbg1, or hel1.')
 
         if self.instance.provider.code == 'digitalocean' and status == CoreCloud.Status.ACTIVE:
             if not access_token:
@@ -356,6 +397,9 @@ class CloudEditForm(forms.ModelForm):
         spaces_access_key = self.cleaned_data.get('spaces_access_key')
         spaces_secret_key = self.cleaned_data.get('spaces_secret_key')
         spaces_region = self.cleaned_data.get('spaces_region')
+        object_storage_access_key = self.cleaned_data.get('object_storage_access_key')
+        object_storage_secret_key = self.cleaned_data.get('object_storage_secret_key')
+        object_storage_region = self.cleaned_data.get('object_storage_region')
 
         if self.instance.provider.code == 'digitalocean':
             do_account, created = CoreDigitalOceanAccount.objects.get_or_create(
@@ -383,12 +427,24 @@ class CloudEditForm(forms.ModelForm):
         elif self.instance.provider.code == 'hetzner':
             hetzner_account, created = CoreHetznerAccount.objects.get_or_create(
                 cloud=cloud,
-                defaults={'access_token': access_token, 'name': name}
+                defaults={
+                    'access_token': access_token,
+                    'name': name,
+                    'object_storage_access_key': object_storage_access_key or '',
+                    'object_storage_secret_key': object_storage_secret_key or '',
+                    'object_storage_region': object_storage_region or 'fsn1',
+                }
             )
             if not created:
                 hetzner_account.name = name
                 if access_token:
                     hetzner_account.access_token = access_token
+                if object_storage_access_key:
+                    hetzner_account.object_storage_access_key = object_storage_access_key
+                if object_storage_secret_key:
+                    hetzner_account.object_storage_secret_key = object_storage_secret_key
+                if object_storage_region:
+                    hetzner_account.object_storage_region = object_storage_region
                 hetzner_account.save()
 
         elif self.instance.provider.code == 'vultr':

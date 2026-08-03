@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -7,10 +8,14 @@ from apps.console.cloud.models import CloudInventoryTransientError
 from apps.console.cloud.hetzner.resources import (
     HETZNER_RESOURCE_SPECS,
     CoreHetznerPrimaryIP,
+    CoreHetznerObjectStorageBucket,
     HetznerResourceSpec,
+    collect_hetzner_action_record,
+    collect_hetzner_inventory,
     collect_hetzner_resource_records,
     iter_hetzner_collection,
     list_hetzner_collection,
+    sync_hetzner_object_storage_assets,
     sync_hetzner_resource,
 )
 from apps.console.utils.models import UtilAsset
@@ -197,8 +202,8 @@ class HetznerResourceSafetyTests(SimpleTestCase):
         self.assertEqual(item["private_key"], "do-not-persist")
         self.assertEqual(records[0]["unique_id"], "9")
         self.assertEqual(records[0]["name"], "edge-cert")
-        self.assertEqual(records[0]["metadata"]["private_key"], "[REDACTED]")
-        self.assertEqual(records[0]["raw"]["private_key"], "[REDACTED]")
+        self.assertNotIn("private_key", records[0]["metadata"])
+        self.assertNotIn("private_key", records[0]["raw"])
 
     def test_all_declared_resource_families_have_models_and_get_endpoints(self):
         expected = {
@@ -214,12 +219,131 @@ class HetznerResourceSafetyTests(SimpleTestCase):
             "datacenter",
             "server_type",
             "iso",
-            "action",
+            "ssh_key",
+            "load_balancer_type",
+            "zone",
+            "rrset",
         }
 
         self.assertEqual(set(HETZNER_RESOURCE_SPECS), expected)
         self.assertIs(HETZNER_RESOURCE_SPECS["primary_ip"].model, CoreHetznerPrimaryIP)
         self.assertTrue(all(spec.endpoint and spec.collection_key for spec in HETZNER_RESOURCE_SPECS.values()))
+
+    def test_action_collection_is_never_requested_as_unbounded_inventory(self):
+        account = FakeHetznerAccount({1: {"servers": []}})
+
+        with self.assertRaises(CloudInventoryTransientError):
+            collect_hetzner_resource_records(account, "action")
+
+        self.assertEqual(account.calls, [])
+
+    def test_ssh_key_and_certificate_normalization_drops_key_material(self):
+        account = FakeHetznerAccount({1: {
+            "ssh_keys": [{
+                "id": 3,
+                "name": "deploy",
+                "fingerprint": "aa:bb",
+                "public_key": "ssh-ed25519 AAAA",
+                "private_key": "never-store",
+            }],
+        }})
+
+        record = collect_hetzner_resource_records(account, "ssh_key")[0]
+
+        self.assertEqual(record["metadata"]["fingerprint"], "aa:bb")
+        self.assertNotIn("public_key", record["metadata"])
+        self.assertNotIn("private_key", record["metadata"])
+
+
+class HetznerNestedInventoryTests(SimpleTestCase):
+    class EndpointAccount:
+        access_token = "test-token"
+
+        def __init__(self, responses):
+            self.responses = responses
+            self.calls = []
+
+        def _make_api_call(self, endpoint, params=None):
+            self.calls.append((endpoint, dict(params or {})))
+            return self.responses[endpoint]
+
+    def test_secondary_zone_does_not_reconcile_partially_visible_rrsets(self):
+        account = self.EndpointAccount({
+            "zones": {"zones": [{"id": 10, "name": "example.test", "mode": "secondary"}]},
+        })
+
+        result = collect_hetzner_inventory(account, resources=["zone", "rrset"])
+
+        self.assertIn("zone", result)
+        self.assertNotIn("rrset", result)
+        self.assertEqual([endpoint for endpoint, _params in account.calls], ["zones"])
+
+    def test_primary_zone_inventory_uses_zone_scoped_rrset_collection(self):
+        account = self.EndpointAccount({
+            "zones": {"zones": [{"id": 10, "name": "example.test", "mode": "primary"}]},
+            "zones/10/rrsets": {"rrsets": [{
+                "name": "www",
+                "type": "A",
+                "ttl": 60,
+                "records": [{"value": "192.0.2.10"}],
+            }]},
+        })
+
+        result = collect_hetzner_inventory(account, resources=["zone", "rrset"])
+
+        self.assertEqual(result["rrset"][0]["unique_id"], "10:www:A")
+        self.assertEqual(result["rrset"][0]["metadata"]["_cloudmoo_zone_id"], "10")
+        self.assertEqual(
+            [endpoint for endpoint, _params in account.calls],
+            ["zones", "zones/10/rrsets"],
+        )
+
+    def test_known_action_is_fetched_by_id_without_global_action_listing(self):
+        account = self.EndpointAccount({
+            "actions/42": {"action": {"id": 42, "command": "create_server", "status": "running"}},
+        })
+
+        record = collect_hetzner_action_record(account, 42)
+
+        self.assertEqual(record["unique_id"], "42")
+        self.assertEqual(record["metadata"]["status"], "running")
+        self.assertEqual([endpoint for endpoint, _params in account.calls], ["actions/42"])
+
+
+class HetznerObjectStorageTests(SimpleTestCase):
+    def test_bucket_inventory_is_metadata_only_and_uses_bucket_region(self):
+        account = SimpleNamespace(
+            access_token="cloud-token",
+            object_storage_access_key="access-key",
+            object_storage_secret_key="secret-key",
+            object_storage_region="fsn1",
+            object_storage_configured=True,
+            object_storage_credentials={
+                "access_key": "access-key",
+                "secret_key": "secret-key",
+                "region": "fsn1",
+            },
+        )
+        manager = FakeManager()
+        client = Mock()
+        client.list_buckets.return_value = {
+            "Buckets": [{
+                "Name": "bucket-a",
+                "BucketRegion": "nbg1",
+                "CreationDate": datetime(2026, 8, 3, tzinfo=timezone.utc),
+            }],
+        }
+
+        with patch.object(CoreHetznerObjectStorageBucket, "objects", manager), \
+                patch("apps.console.cloud.hetzner.resources.boto3.client", return_value=client) as mock_client:
+            count = sync_hetzner_object_storage_assets(account)
+
+        self.assertEqual(count, 1)
+        mock_client.assert_called_once()
+        self.assertEqual(mock_client.call_args.kwargs["endpoint_url"], "https://fsn1.your-objectstorage.com")
+        client.list_buckets.assert_called_once_with()
+        self.assertEqual(manager.get_or_create_calls[0]["unique_id"], "bucket-a")
+        self.assertEqual(manager.get_or_create_calls[0]["defaults"]["metadata"]["region"], "nbg1")
 
 
 class HetznerReconciliationTests(SimpleTestCase):

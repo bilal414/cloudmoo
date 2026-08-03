@@ -1,4 +1,6 @@
 from apps.console.models import *
+from apps.console.cloud.hetzner.models import *
+from apps.console.cloud.hetzner.resources import *
 from apps.console.cloud.aws.models import *
 from apps.console.cloud.aws.network import *
 from apps.console.cloud.aws.observability import *

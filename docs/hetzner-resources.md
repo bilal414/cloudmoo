@@ -4,9 +4,10 @@ This document is the coverage contract for CloudMoo's Hetzner integration. It
 records the provider surface, the resources CloudMoo will inventory and
 monitor, and the safety boundary for any later live lifecycle tests.
 
-This commit is documentation-only. It does not change application code, read
-the local Hetzner credential file, call a Hetzner resource endpoint, or create,
-change, or delete a provider resource.
+The implementation is read-only with respect to Hetzner. It does not create,
+change, or delete a provider resource during normal sync or monitoring, and
+the repository tests use mocked provider responses. No live Hetzner resource
+was created or modified while this integration was implemented.
 
 The source of truth is Hetzner's [Cloud API
 reference](https://docs.hetzner.cloud/reference/cloud) and its
@@ -27,6 +28,23 @@ supported. The integration scope below expands and hardens this lane. A
 resource is not considered integrated until its provider adapter, persistence,
 status-check dispatch, UI/admin registration, tests, and read-only safety
 guards are all complete.
+
+## Implemented read-only coverage
+
+The current branch implements and registers read-only inventory for Primary
+IPs, Floating IPs, Networks, Firewalls, Load Balancers, Placement Groups,
+Images, Certificates, Locations, Datacenters, Server Types, ISOs, SSH keys,
+Load Balancer Types, DNS Zones, and primary-zone RRsets. It also includes
+bounded status checks for those resources, Server and Load Balancer metrics,
+known Action IDs, and Load Balancer target health. Object Storage bucket
+inventory and `HeadBucket` monitoring are available through the separate,
+optional S3 credential fields.
+
+Normal sync uses bounded GET requests, validates pagination and identifiers,
+redacts sensitive provider fields, and reconciles only after a complete family
+has been collected. Catalog/reference families default to monitoring disabled;
+DNS RRsets are preserved when a secondary zone makes their collection
+incomplete; and the adapter never issues an unbounded global Action listing.
 
 ## Authentication and API boundary
 
@@ -210,7 +228,7 @@ product APIs.
 
 | Product or capability | Official access surface | Status for this change |
 | --- | --- | --- |
-| Object Storage | S3-compatible API and Object Storage endpoints; see the [Object Storage overview](https://docs.hetzner.com/storage/object-storage/overview/) | Not a Cloud API resource. Do not invent `/v1/buckets` inventory. A future connector may use separate S3 credentials and must define safe bucket/object metadata boundaries. |
+| Object Storage | S3-compatible API and Object Storage endpoints; see the [Object Storage overview](https://docs.hetzner.com/storage/object-storage/overview/) | Implemented as an optional, separate S3 read-only bucket adapter. It inventories bucket names, creation timestamps, region, and endpoint only; it never reads object contents or performs bucket/object writes. |
 | Storage Boxes | `api.hetzner.com`, Console, SFTP/SCP/SMB/WebDAV and related protocols; see the [Storage Box overview](https://docs.hetzner.com/storage/storage-box/general/) | Separate product and credential surface. Not included in the Cloud API adapter or this change. |
 | Dedicated Servers and vSwitches | Robot Web Service; see the [official API overview](https://docs.hetzner.cloud/) | Separate API and product model. Not included in this Cloud API adapter. |
 | Managed databases | Hetzner managed database/konsoleH documentation, such as [database connection details](https://docs.hetzner.com/managed/databases/general/connection-details-database/) | No managed-database resource appears in the Cloud API specification. Do not claim Cloud API database inventory or create a fake `database` endpoint. A future product-specific connector would need separate scope and credentials. |
@@ -219,13 +237,15 @@ product APIs.
 
 These products must not be treated as empty Cloud API collections. Missing
 support is a deliberate boundary, not evidence that the customer's account
-contains no resources.
+contains no resources. Object Storage is the one exception in this table: its
+optional connector is deliberately separate from the Cloud API token and is
+disabled unless valid S3 credentials and a supported region are configured.
 
 ## Live-test protocol
 
-This protocol is a future opt-in procedure for validating the implementation.
-It is not executed by this documentation change. It permits only resources
-created by the current test run to be mutated or deleted.
+This protocol is a future opt-in procedure for validating live lifecycle
+behavior. It was not executed during this implementation. It permits only
+resources created by the current test run to be mutated or deleted.
 
 ### Preconditions
 
@@ -333,9 +353,11 @@ unredacted live API output.
   documentation](https://docs.hetzner.com/cloud/volumes/overview/) states that
   Volumes do not have provider Backups or Snapshots, and Server backups do not
   include attached Volumes.
-- No Object Storage buckets/objects, Storage Boxes, Dedicated Servers,
-  vSwitches, managed databases, PaaS deployments, managed Kubernetes clusters,
-  Kubernetes objects, or application logs in the Cloud API adapter.
+- No Object Storage object reads or writes; the optional separate Object
+  Storage connector inventories bucket metadata only. Storage Boxes, Dedicated
+  Servers, vSwitches, managed databases, PaaS deployments, managed Kubernetes
+  clusters, Kubernetes objects, and application logs remain outside this
+  adapter.
 - No claim that a successful API GET proves end-user reachability, application
   health, database query health, Kubernetes health, or object durability.
 - No arbitrary action-history ingestion, aggressive action polling, or use of
@@ -347,7 +369,7 @@ unredacted live API output.
 
 ## Definition of done for the implementation
 
-The subsequent code change is complete only when it has:
+The implementation is complete for the supported read-only surface when it has:
 
 1. Provider adapters and model relations for every P0 resource in the
    priority table, with explicit type/dispatch registration.

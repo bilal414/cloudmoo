@@ -79,6 +79,24 @@ class UtilAsset(TimeStampedModel):
         KUBERNETES_CLUSTER = "kubernetes_cluster", "Kubernetes Cluster"
         KUBERNETES_NODE_POOL = "kubernetes_node_pool", "Kubernetes Node Pool"
 
+        # Hetzner Cloud inventory families.  These names are provider-neutral
+        # where the same concept is useful across providers, while the
+        # provider-specific adapter remains responsible for semantics.
+        PRIMARY_IP = "primary_ip", "Primary IP"
+        FLOATING_IP = "floating_ip", "Floating IP"
+        NETWORK = "network", "Network"
+        PLACEMENT_GROUP = "placement_group", "Placement Group"
+        IMAGE = "image", "Image"
+        LOCATION = "location", "Location"
+        DATACENTER = "datacenter", "Datacenter"
+        SERVER_TYPE = "server_type", "Server Type"
+        ISO = "iso", "ISO"
+        SSH_KEY = "ssh_key", "SSH Key"
+        LOAD_BALANCER_TYPE = "load_balancer_type", "Load Balancer Type"
+        ZONE = "zone", "DNS Zone"
+        RRSET = "rrset", "DNS RRSet"
+        ACTION = "action", "Provider Action"
+
         AWS_CLOUDWATCH_ALARM = "aws_cloudwatch_alarm", "AWS CloudWatch Alarm"
         AWS_CLOUDWATCH_METRIC = "aws_cloudwatch_metric", "AWS CloudWatch Metric"
         AWS_LOG_GROUP = "aws_log_group", "AWS Log Group"
@@ -473,6 +491,20 @@ class UtilAsset(TimeStampedModel):
             self.Type.ECS_TASK,
             self.Type.KUBERNETES_CLUSTER,
             self.Type.KUBERNETES_NODE_POOL,
+            self.Type.PRIMARY_IP,
+            self.Type.FLOATING_IP,
+            self.Type.NETWORK,
+            self.Type.PLACEMENT_GROUP,
+            self.Type.IMAGE,
+            self.Type.LOCATION,
+            self.Type.DATACENTER,
+            self.Type.SERVER_TYPE,
+            self.Type.ISO,
+            self.Type.SSH_KEY,
+            self.Type.LOAD_BALANCER_TYPE,
+            self.Type.ZONE,
+            self.Type.RRSET,
+            self.Type.ACTION,
             self.Type.AWS_CLOUDWATCH_ALARM,
             self.Type.AWS_CLOUDWATCH_METRIC,
             self.Type.AWS_LOG_GROUP,

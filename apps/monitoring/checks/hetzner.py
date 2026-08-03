@@ -1,39 +1,16 @@
-import requests
+"""Compatibility wrappers for the hardened Hetzner status checks.
 
-from apps.monitoring.checks.base import REQUEST_TIMEOUT_SECONDS, classify_http_error
+Older callers import this module directly for Server and Volume checks. Keep
+those imports working while ensuring they use the same bounded, redacted,
+read-only implementation as every other Hetzner resource family.
+"""
 
+from apps.monitoring.checks.hetzner_resources import (
+    check_hetzner_server_status,
+    check_hetzner_volume_status,
+)
 
-def check_hetzner_server_status(unique_id, access_token):
-    """Check Hetzner server status"""
-    api_url = f'https://api.hetzner.cloud/v1/servers/{unique_id}'
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
-
-    try:
-        response = requests.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        data = response.json()
-        current_status = data['server']['status']
-        return current_status, data
-    except requests.exceptions.RequestException as e:
-        return classify_http_error(e), str(e)
-
-
-def check_hetzner_volume_status(unique_id, access_token):
-    """Check Hetzner volume status"""
-    api_url = f'https://api.hetzner.cloud/v1/volumes/{unique_id}'
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
-
-    try:
-        response = requests.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        data = response.json()
-        current_status = data['volume']['status']
-        return current_status, data
-    except requests.exceptions.RequestException as e:
-        return classify_http_error(e), str(e)
+__all__ = [
+    "check_hetzner_server_status",
+    "check_hetzner_volume_status",
+]

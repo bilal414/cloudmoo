@@ -179,6 +179,62 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
             }
         }
 
+    def get_hetzner_asset_categories(self):
+        """Group Hetzner inventory families using their account relations."""
+        return {
+            'compute': {
+                'name': 'Compute & Images',
+                'icon': 'cpu',
+                'assets': [
+                    'servers',
+                    'corehetznerimage_assets',
+                    'corehetznerplacementgroup_assets',
+                    'corehetznerservertype_assets',
+                ],
+            },
+            'storage': {
+                'name': 'Storage',
+                'icon': 'database',
+                'assets': ['volumes', 'corehetznerobjectstoragebucket_assets'],
+            },
+            'networking': {
+                'name': 'Networking',
+                'icon': 'globe-alt',
+                'assets': [
+                    'corehetznerprimaryip_assets',
+                    'corehetznerfloatingip_assets',
+                    'corehetznernetwork_assets',
+                    'corehetznerfirewall_assets',
+                    'corehetznerloadbalancer_assets',
+                ],
+            },
+            'dns': {
+                'name': 'DNS',
+                'icon': 'globe-alt',
+                'assets': ['corehetznerzone_assets', 'corehetznerrset_assets'],
+            },
+            'security': {
+                'name': 'Security',
+                'icon': 'shield-check',
+                'assets': ['corehetznercertificate_assets', 'corehetznersshkey_assets'],
+            },
+            'reference': {
+                'name': 'Reference Data',
+                'icon': 'table-cells',
+                'assets': [
+                    'corehetznerlocation_assets',
+                    'corehetznerdatacenter_assets',
+                    'corehetzneriso_assets',
+                    'corehetznerloadbalancertype_assets',
+                ],
+            },
+            'operations': {
+                'name': 'Operations',
+                'icon': 'chart-bar',
+                'assets': ['corehetzneraction_assets'],
+            },
+        }
+
     def get_detailed_asset_counts(self, cloud):
         """Get detailed counts for all AWS asset types"""
         provider_account = cloud.provider_account
@@ -333,12 +389,19 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
             del query_params['page']
 
         # Enhanced context for AWS optimization
+        provider_code = cloud.provider.code.lower()
+        asset_categories = (
+            self.get_hetzner_asset_categories()
+            if provider_code == 'hetzner'
+            else self.get_aws_asset_categories()
+        )
+
         context.update({
             'assets': page_obj,
             'page_obj': page_obj,
             'asset_counts': self.get_asset_counts(cloud),  # Legacy compatibility
             'detailed_asset_counts': self.get_detailed_asset_counts(cloud),
-            'aws_asset_categories': self.get_aws_asset_categories(),
+            'aws_asset_categories': asset_categories,
             'monitoring_summary': self.get_monitoring_summary(cloud),
             'cost_insights': self.get_cost_insights(cloud),
             'health_status': self.get_health_status(cloud),
@@ -349,7 +412,8 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
             'sort_by': self.request.GET.get('sort', 'created'),
             'sort_direction': self.request.GET.get('direction', 'desc'),
             'query_params': query_params.urlencode(),
-            'is_aws': cloud.provider.code.lower() == 'aws',
-            'is_digitalocean': cloud.provider.code.lower() == 'digitalocean',
+            'is_aws': provider_code == 'aws',
+            'is_digitalocean': provider_code == 'digitalocean',
+            'is_hetzner': provider_code == 'hetzner',
         })
         return context
