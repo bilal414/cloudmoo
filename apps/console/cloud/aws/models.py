@@ -89,7 +89,19 @@ class CoreAWSAccount(UtilCloud):
         # refers back to CoreAWSAccount for its persisted owner relation.
         # Calling them directly is intentional: discovery/authentication
         # failures must remain visible to the cloud sync caller.
-        from . import backup, containers, edge, network, observability
+        from . import (
+            application_services,
+            backup,
+            containers,
+            data_services,
+            delivery,
+            edge,
+            network,
+            observability,
+            account_operations,
+            credentials_config,
+            security_governance,
+        )
 
         network.sync_aws_network_assets(self)
         observability.sync_aws_observability_assets(self)
@@ -98,8 +110,14 @@ class CoreAWSAccount(UtilCloud):
         backup.sync_aws_backup_assets(self)
         backup.sync_aws_snapshots(self)
         edge.sync_aws_regional_certificates(self)
+        data_services.sync_aws_data_service_assets(self)
+        application_services.sync_aws_application_service_assets(self)
+        delivery.sync_aws_delivery_assets(self)
 
         self.sync_lightsail_assets()
+        security_governance.sync_aws_security_governance_assets(self)
+        credentials_config.sync_aws_credentials_config_assets(self)
+        account_operations.sync_aws_account_operations_assets(self)
         self.last_synced = timezone.now()
         self.save()
 

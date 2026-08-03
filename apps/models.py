@@ -6,4 +6,10 @@ from apps.console.cloud.aws.containers import *
 from apps.console.cloud.aws.edge import *
 from apps.console.cloud.aws.backup import *
 from apps.console.cloud.aws.lightsail import *
+from apps.console.cloud.aws.data_services import *
+from apps.console.cloud.aws.application_services import *
+from apps.console.cloud.aws.delivery import *
+from apps.console.cloud.aws.security_governance import *
+from apps.console.cloud.aws.credentials_config import *
+from apps.console.cloud.aws.account_operations import *
 from apps.monitoring.models import *

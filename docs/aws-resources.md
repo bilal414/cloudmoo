@@ -114,31 +114,60 @@ delete AWS resources.
 
 ### Priority 1: platform and data services
 
-- **Databases and caches:** Aurora/RDS clusters and snapshots, ElastiCache,
-  MemoryDB, OpenSearch, EFS, and FSx. These need resource-specific status
-  semantics, maintenance-window/backup metadata, and metric thresholds rather
-  than a generic `available` status alone.
-- **Application integration:** API Gateway REST/HTTP/WebSocket APIs, EventBridge
+Implemented with read-only regional inventory and status checks:
+
+- **Databases and storage:** Aurora/RDS clusters, ElastiCache clusters and
+  replication/serverless caches, MemoryDB clusters, OpenSearch domains, EFS
+  file systems, and FSx file systems. Existing Priority 0 snapshot coverage
+  continues to cover EBS/RDS snapshots.
+- **Application integration:** API Gateway REST and v2 APIs, EventBridge
   buses/rules/schedules/pipes, SNS topics, SQS queues, Step Functions state
   machines, Athena workgroups/catalogs, and CloudFormation stacks.
-- **Delivery and hosting:** App Runner services, Elastic Beanstalk
-  environments, CodeBuild projects, CodePipeline executions, and deployment
-  events where customers use AWS-native delivery.
+- **Delivery and hosting:** Elastic Beanstalk applications/environments,
+  CodeBuild projects and bounded recent builds, and CodePipeline pipelines and
+  bounded recent executions. App Runner remains covered by the Priority 0
+  container adapter; CodeBuild/CodePipeline provide the deployment-event
+  surface without invoking a deployment service.
+
+The adapters are implemented in `apps/console/cloud/aws/data_services.py`,
+`apps/console/cloud/aws/application_services.py`, and
+`apps/console/cloud/aws/delivery.py`. They use bounded allowlisted metadata,
+stable Region-scoped IDs, fail-closed reconciliation, and read-only monitoring
+calls. Priority 1 is now wired into account sync, model registration,
+monitoring dispatch, inventory/detail UI, admin, migrations, and the read-only
+IAM policy.
 
 ### Priority 2: security, governance, and FinOps
 
-- **Security metadata:** IAM users/roles/policies, KMS key metadata, CloudTrail
-  trails, AWS Config rules, GuardDuty, Security Hub, Inspector, Macie, and
-  Firewall Manager. These are valuable enterprise checks but should be modeled
-  as compliance/control-plane assets, not as ordinary uptime checks.
-- **Credential/configuration metadata:** Secrets Manager and SSM Parameter
-  Store names, rotation/last-changed metadata, and policy posture only. Never
-  fetch or persist secret values, parameter values, Lambda environment values,
-  or private key material.
-- **Account operations:** AWS Health events, Trusted Advisor checks, Cost
-  Explorer usage/cost signals, and Cost Anomaly Detection monitors/subscriptions.
-  These are account-level signals and need separate permissions, retention, and
-  notification rules.
+Implemented with read-only inventory, bounded metadata, and status checks:
+
+- **Security and governance:** IAM users, roles, and local policies; KMS keys
+  and aliases; CloudTrail trails; AWS Config rules and recorders; GuardDuty
+  detectors; Security Hub; Inspector; Macie; and Firewall Manager policies.
+  IAM is collected once with a `global` identity; the remaining families are
+  enumerated per enabled Region.
+- **Credential/configuration posture:** Secrets Manager secret metadata and SSM
+  Parameter Store parameter metadata, including safe tags and rotation or
+  last-changed posture where the provider exposes it. The adapters never call
+  `GetSecretValue`, `GetParameter`, or any equivalent value API, and never
+  persist secret values, parameter values, Lambda environment values, or
+  private key material. Credentials are supplied only as ephemeral checker
+  context.
+- **Account operations and FinOps:** AWS Health events, Trusted Advisor
+  checks, Cost Explorer usage/cost signals, Cost Anomaly Detection monitors
+  and subscriptions, and bounded anomaly findings. These are account-scoped
+  control-plane assets, persisted with `scope=account` and
+  `control_plane_region=us-east-1` for endpoint and audit context; they are not
+  fanned out as regional workload resources.
+
+The three provider lanes are implemented in
+`apps/console/cloud/aws/security_governance.py`,
+`apps/console/cloud/aws/credentials_config.py`, and
+`apps/console/cloud/aws/account_operations.py`. Priority 2 is wired into
+Django model registration, account synchronization, monitoring dispatch,
+asset detail/list lookup, generic dashboard counts, admin registration, the
+read-only IAM policy, and migration state. Unsupported asset types continue
+to fail closed in the monitoring dispatcher.
 
 ## Enterprise implementation requirements
 
@@ -169,12 +198,23 @@ Every future adapter should preserve these invariants:
 
 `aws-cloudmoo-readonly-policy.json` includes the Priority 0 EC2/VPC, Auto
 Scaling, RDS, CloudWatch/Logs, ECR/ECS/EKS/App Runner, Route 53, CloudFront,
-WAF, Global Accelerator, ACM, Backup, and STS read actions, alongside the
-existing core AWS permissions. It contains no lifecycle mutation actions.
+WAF, Global Accelerator, ACM, Backup, and STS read actions, plus the Priority
+1 database/storage, application-integration, Elastic Beanstalk, CodeBuild,
+and CodePipeline reads. It also contains only the exact read actions used by
+the Priority 2 adapters and checkers for IAM, KMS, CloudTrail, Config,
+GuardDuty, Security Hub, Inspector, Macie, Firewall Manager, Secrets Manager,
+SSM, Health, Trusted Advisor, Cost Explorer, and Cost Anomaly Detection. It
+does not grant secret or parameter-value reads and contains no lifecycle
+mutation actions.
 
 ## Testing status
 
-The local integration and provider-focused tests use mocks and fixtures. A
-separate live-test phase would require explicit approval of a target Region,
-budget, and cleanup window; existing account resources must remain outside any
-future lifecycle-test target set.
+The local integration and provider-focused tests use mocks and fixtures,
+including read-only-operation guards, malformed-response handling, regional
+identity, redaction, and reconciliation safety. No live AWS lifecycle tests or
+resource creation are part of this implementation. The Priority 2 integration
+suite is `tests/test_aws_priority2_integration.py`; it is credential-free and
+asserts model/type registration, concrete relations, sync orchestration,
+monitoring ownership, exact policy reads, forbidden mutations, and the
+secret/parameter-value boundary. No live AWS testing is claimed or required
+for these checks.

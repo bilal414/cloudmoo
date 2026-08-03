@@ -175,6 +175,285 @@
             "Resource": "*"
         },
         {
+            "Sid": "ElastiCacheReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
+                "elasticache:DescribeServerlessCaches"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "MemoryDBReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "memorydb:DescribeClusters"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "OpenSearchReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "es:ListDomainNames",
+                "es:DescribeDomain"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EFSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticfilesystem:DescribeFileSystems",
+                "elasticfilesystem:DescribeMountTargets"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "FSxReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "fsx:DescribeFileSystems"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "APIGatewayReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "apigateway:GET"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EventBridgeReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "events:ListEventBuses",
+                "events:DescribeEventBus",
+                "events:ListRules",
+                "events:DescribeRule"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EventBridgeSchedulerReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "scheduler:ListSchedules",
+                "scheduler:GetSchedule"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EventBridgePipesReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "pipes:ListPipes",
+                "pipes:DescribePipe"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "SNSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "sns:ListTopics",
+                "sns:GetTopicAttributes"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "SQSReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "sqs:ListQueues",
+                "sqs:GetQueueAttributes"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "StepFunctionsReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "states:ListStateMachines",
+                "states:DescribeStateMachine"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AthenaReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "athena:ListWorkGroups",
+                "athena:GetWorkGroup",
+                "athena:ListDataCatalogs",
+                "athena:GetDataCatalog"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudFormationReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:ListStacks",
+                "cloudformation:DescribeStacks",
+                "cloudformation:ListStackResources"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ElasticBeanstalkReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticbeanstalk:DescribeApplications",
+                "elasticbeanstalk:DescribeEnvironments"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CodeBuildReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "codebuild:ListProjects",
+                "codebuild:BatchGetProjects",
+                "codebuild:ListBuildsForProject",
+                "codebuild:BatchGetBuilds"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CodePipelineReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "codepipeline:ListPipelines",
+                "codepipeline:GetPipeline",
+                "codepipeline:ListPipelineExecutions",
+                "codepipeline:GetPipelineExecution"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMSecurityReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "iam:ListUsers",
+                "iam:GetUser",
+                "iam:ListRoles",
+                "iam:GetRole",
+                "iam:ListPolicies",
+                "iam:GetPolicy"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "KMSSecurityReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "kms:ListKeys",
+                "kms:DescribeKey",
+                "kms:ListAliases"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudTrailSecurityReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "cloudtrail:DescribeTrails",
+                "cloudtrail:GetTrail",
+                "cloudtrail:GetTrailStatus"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ConfigSecurityReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "config:DescribeConfigRules",
+                "config:DescribeComplianceByConfigRule",
+                "config:DescribeConfigurationRecorders",
+                "config:DescribeConfigurationRecorderStatus"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "GuardDutySecurityReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "guardduty:ListDetectors",
+                "guardduty:GetDetector"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "SecurityHubReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "securityhub:DescribeHub",
+                "securityhub:GetEnabledStandards"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "InspectorReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "inspector2:BatchGetAccountStatus",
+                "inspector2:GetConfiguration"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "MacieReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "macie2:GetMacieSession"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "FirewallManagerReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "fms:ListPolicies",
+                "fms:GetPolicy",
+                "fms:ListComplianceStatus"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CredentialMetadataReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:ListSecrets",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:ListTagsForResource",
+                "ssm:DescribeParameters",
+                "ssm:ListTagsForResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AccountOperationsReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "health:DescribeEvents",
+                "health:DescribeEventDetails",
+                "support:DescribeTrustedAdvisorChecks",
+                "support:DescribeTrustedAdvisorCheckResult",
+                "support:DescribeTrustedAdvisorCheckSummaries",
+                "ce:GetCostAndUsage",
+                "ce:GetCostForecast",
+                "ce:GetDimensionValues",
+                "ce:GetAnomalyMonitors",
+                "ce:GetAnomalySubscriptions",
+                "ce:GetAnomalies"
+            ],
+            "Resource": "*"
+        },
+        {
             "Sid": "STSReadOnlyAccess",
             "Effect": "Allow",
             "Action": [

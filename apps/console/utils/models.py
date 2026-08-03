@@ -110,6 +110,86 @@ class UtilAsset(TimeStampedModel):
         AWS_BACKUP_JOB = "aws_backup_job", "AWS Backup Job"
         AWS_BACKUP_COPY_JOB = "aws_backup_copy_job", "AWS Backup Copy Job"
 
+        AWS_RDS_CLUSTER = "aws_rds_cluster", "AWS RDS Cluster"
+        AWS_ELASTICACHE_CLUSTER = "aws_elasticache_cluster", "AWS ElastiCache Cluster"
+        AWS_ELASTICACHE_REPLICATION_GROUP = (
+            "aws_elasticache_replication_group",
+            "AWS ElastiCache Replication Group",
+        )
+        AWS_ELASTICACHE_SERVERLESS_CACHE = (
+            "aws_elasticache_serverless_cache",
+            "AWS ElastiCache Serverless Cache",
+        )
+        AWS_MEMORYDB_CLUSTER = "aws_memorydb_cluster", "AWS MemoryDB Cluster"
+        AWS_OPENSEARCH_DOMAIN = "aws_opensearch_domain", "AWS OpenSearch Domain"
+        AWS_EFS_FILE_SYSTEM = "aws_efs_file_system", "AWS EFS File System"
+        AWS_FSX_FILE_SYSTEM = "aws_fsx_file_system", "AWS FSx File System"
+
+        AWS_APIGATEWAY_REST_API = "aws_apigateway_rest_api", "AWS API Gateway REST API"
+        AWS_APIGATEWAY_V2_API = "aws_apigateway_v2_api", "AWS API Gateway v2 API"
+        AWS_EVENTBRIDGE_BUS = "aws_eventbridge_bus", "AWS EventBridge Bus"
+        AWS_EVENTBRIDGE_RULE = "aws_eventbridge_rule", "AWS EventBridge Rule"
+        AWS_EVENTBRIDGE_SCHEDULE = "aws_eventbridge_schedule", "AWS EventBridge Schedule"
+        AWS_EVENTBRIDGE_PIPE = "aws_eventbridge_pipe", "AWS EventBridge Pipe"
+        AWS_SNS_TOPIC = "aws_sns_topic", "AWS SNS Topic"
+        AWS_SQS_QUEUE = "aws_sqs_queue", "AWS SQS Queue"
+        AWS_STEPFUNCTIONS_STATE_MACHINE = (
+            "aws_stepfunctions_state_machine",
+            "AWS Step Functions State Machine",
+        )
+        AWS_ATHENA_WORKGROUP = "aws_athena_workgroup", "AWS Athena Workgroup"
+        AWS_ATHENA_DATA_CATALOG = "aws_athena_data_catalog", "AWS Athena Data Catalog"
+        AWS_CLOUDFORMATION_STACK = "aws_cloudformation_stack", "AWS CloudFormation Stack"
+
+        AWS_ELASTIC_BEANSTALK_APPLICATION = (
+            "aws_elastic_beanstalk_application",
+            "AWS Elastic Beanstalk Application",
+        )
+        AWS_ELASTIC_BEANSTALK_ENVIRONMENT = (
+            "aws_elastic_beanstalk_environment",
+            "AWS Elastic Beanstalk Environment",
+        )
+        AWS_CODEBUILD_PROJECT = "aws_codebuild_project", "AWS CodeBuild Project"
+        AWS_CODEBUILD_BUILD = "aws_codebuild_build", "AWS CodeBuild Build"
+        AWS_CODEPIPELINE_PIPELINE = "aws_codepipeline_pipeline", "AWS CodePipeline Pipeline"
+        AWS_CODEPIPELINE_EXECUTION = "aws_codepipeline_execution", "AWS CodePipeline Execution"
+
+        AWS_IAM_USER = "aws_iam_user", "AWS IAM User"
+        AWS_IAM_ROLE = "aws_iam_role", "AWS IAM Role"
+        AWS_IAM_POLICY = "aws_iam_policy", "AWS IAM Policy"
+        AWS_KMS_KEY = "aws_kms_key", "AWS KMS Key"
+        AWS_KMS_ALIAS = "aws_kms_alias", "AWS KMS Alias"
+        AWS_CLOUDTRAIL_TRAIL = "aws_cloudtrail_trail", "AWS CloudTrail Trail"
+        AWS_CONFIG_RULE = "aws_config_rule", "AWS Config Rule"
+        AWS_CONFIG_RECORDER = "aws_config_recorder", "AWS Config Recorder"
+        AWS_GUARDDUTY_DETECTOR = "aws_guardduty_detector", "AWS GuardDuty Detector"
+        AWS_SECURITY_HUB = "aws_security_hub", "AWS Security Hub"
+        AWS_INSPECTOR = "aws_inspector", "AWS Inspector"
+        AWS_MACIE = "aws_macie", "AWS Macie"
+        AWS_FIREWALL_MANAGER_POLICY = (
+            "aws_firewall_manager_policy",
+            "AWS Firewall Manager Policy",
+        )
+
+        AWS_SECRETS_MANAGER_SECRET = (
+            "aws_secrets_manager_secret",
+            "AWS Secrets Manager Secret",
+        )
+        AWS_SSM_PARAMETER = "aws_ssm_parameter", "AWS SSM Parameter"
+
+        AWS_HEALTH_EVENT = "aws_health_event", "AWS Health Event"
+        AWS_TRUSTED_ADVISOR_CHECK = (
+            "aws_trusted_advisor_check",
+            "AWS Trusted Advisor Check",
+        )
+        AWS_COST_EXPLORER_SIGNAL = "aws_cost_explorer_signal", "AWS Cost Explorer Signal"
+        AWS_COST_ANOMALY_MONITOR = "aws_cost_anomaly_monitor", "AWS Cost Anomaly Monitor"
+        AWS_COST_ANOMALY_SUBSCRIPTION = (
+            "aws_cost_anomaly_subscription",
+            "AWS Cost Anomaly Subscription",
+        )
+        AWS_COST_ANOMALY = "aws_cost_anomaly", "AWS Cost Anomaly"
+
         VPC = "vpc", "VPC"
         SUBNET = "subnet", "Subnet"
         ROUTE_TABLE = "route_table", "Route Table"

@@ -44,6 +44,12 @@ from apps.console.cloud.aws.observability import AWS_OBSERVABILITY_ASSET_MODELS
 from apps.console.cloud.aws.containers import AWS_CONTAINER_ASSET_MODELS
 from apps.console.cloud.aws.edge import AWS_EDGE_ASSET_MODELS
 from apps.console.cloud.aws.backup import AWS_BACKUP_ASSET_MODELS
+from apps.console.cloud.aws.data_services import AWS_DATA_SERVICE_ASSET_MODELS
+from apps.console.cloud.aws.application_services import AWS_APPLICATION_ASSET_MODELS
+from apps.console.cloud.aws.delivery import AWS_DELIVERY_ASSET_MODELS
+from apps.console.cloud.aws.security_governance import AWS_SECURITY_GOVERNANCE_ASSET_MODELS
+from apps.console.cloud.aws.credentials_config import AWS_CREDENTIALS_CONFIG_ASSET_MODELS
+from apps.console.cloud.aws.account_operations import AWS_ACCOUNT_OPERATIONS_ASSET_MODELS
 from apps.console.member.models import CoreMember
 from apps.console.plan.models import CorePlan
 from django.contrib import admin
@@ -316,6 +322,40 @@ _aws_priority0_asset_models += tuple(AWS_BACKUP_ASSET_MODELS.values())
 
 for _aws_priority0_asset_model in _aws_priority0_asset_models:
     admin.site.register(_aws_priority0_asset_model, CoreAWSPriority0AssetAdmin)
+
+
+class CoreAWSPriority1AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+_aws_priority1_asset_models = (
+    tuple(AWS_DATA_SERVICE_ASSET_MODELS.values())
+    + tuple(AWS_APPLICATION_ASSET_MODELS.values())
+    + tuple(AWS_DELIVERY_ASSET_MODELS.values())
+)
+
+for _aws_priority1_asset_model in _aws_priority1_asset_models:
+    admin.site.register(_aws_priority1_asset_model, CoreAWSPriority1AssetAdmin)
+
+
+class CoreAWSPriority2AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    # Account-operation assets use provider_id while the other Priority 2
+    # models use unique_id; name is the shared searchable identity.
+    search_fields = ('name',)
+
+
+_aws_priority2_asset_models = (
+    tuple(AWS_SECURITY_GOVERNANCE_ASSET_MODELS.values())
+    + tuple(AWS_CREDENTIALS_CONFIG_ASSET_MODELS.values())
+    + tuple(AWS_ACCOUNT_OPERATIONS_ASSET_MODELS.values())
+)
+
+for _aws_priority2_asset_model in _aws_priority2_asset_models:
+    admin.site.register(_aws_priority2_asset_model, CoreAWSPriority2AssetAdmin)
 
 
 

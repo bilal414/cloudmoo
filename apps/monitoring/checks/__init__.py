@@ -57,6 +57,55 @@ _AWS_EDGE_PREFIXES = (
     "aws_global_accelerator",
 )
 _AWS_BACKUP_PREFIXES = ("aws_backup_",)
+_AWS_DATA_SERVICE_PREFIXES = (
+    "aws_rds_",
+    "aws_elasticache_",
+    "aws_memorydb_",
+    "aws_opensearch_",
+    "aws_efs_",
+    "aws_fsx_",
+)
+_AWS_APPLICATION_PREFIXES = (
+    "aws_apigateway_",
+    "aws_eventbridge_",
+    "aws_sns_",
+    "aws_sqs_",
+    "aws_stepfunctions_",
+    "aws_athena_",
+    "aws_cloudformation_",
+)
+_AWS_DELIVERY_PREFIXES = (
+    "aws_elastic_beanstalk_",
+    "aws_codebuild_",
+    "aws_codepipeline_",
+)
+_AWS_SECURITY_GOVERNANCE_TYPES = frozenset({
+    "aws_iam_user",
+    "aws_iam_role",
+    "aws_iam_policy",
+    "aws_kms_key",
+    "aws_kms_alias",
+    "aws_cloudtrail_trail",
+    "aws_config_rule",
+    "aws_config_recorder",
+    "aws_guardduty_detector",
+    "aws_security_hub",
+    "aws_inspector",
+    "aws_macie",
+    "aws_firewall_manager_policy",
+})
+_AWS_CREDENTIALS_CONFIG_TYPES = frozenset({
+    "aws_secrets_manager_secret",
+    "aws_ssm_parameter",
+})
+_AWS_ACCOUNT_OPERATIONS_TYPES = frozenset({
+    "aws_health_event",
+    "aws_trusted_advisor_check",
+    "aws_cost_explorer_signal",
+    "aws_cost_anomaly_monitor",
+    "aws_cost_anomaly_subscription",
+    "aws_cost_anomaly",
+})
 
 
 def _aws_module_for(asset_type):
@@ -78,6 +127,18 @@ def _aws_module_for(asset_type):
         return "apps.monitoring.checks.aws_backup"
     if asset_type.startswith(_AWS_BACKUP_PREFIXES):
         return "apps.monitoring.checks.aws_backup"
+    if asset_type.startswith(_AWS_DATA_SERVICE_PREFIXES):
+        return "apps.monitoring.checks.aws_data_services"
+    if asset_type.startswith(_AWS_APPLICATION_PREFIXES):
+        return "apps.monitoring.checks.aws_application_services"
+    if asset_type.startswith(_AWS_DELIVERY_PREFIXES):
+        return "apps.monitoring.checks.aws_delivery"
+    if asset_type in _AWS_SECURITY_GOVERNANCE_TYPES:
+        return "apps.monitoring.checks.aws_security_governance"
+    if asset_type in _AWS_CREDENTIALS_CONFIG_TYPES:
+        return "apps.monitoring.checks.aws_credentials_config"
+    if asset_type in _AWS_ACCOUNT_OPERATIONS_TYPES:
+        return "apps.monitoring.checks.aws_account_operations"
     if asset_type in _AWS_LEGACY_TYPES:
         return "apps.monitoring.checks.aws"
     return None
@@ -105,6 +166,28 @@ def _lookup_check(provider_module, provider, asset_type):
         "AWS_CONTAINER_STATUS_CHECKS",
         "AWS_EDGE_CHECKS",
         "AWS_BACKUP_STATUS_CHECKS",
+        "AWS_DATA_SERVICE_STATUS_CHECKS",
+        "AWS_DATA_SERVICE_CHECKS",
+        "AWS_APPLICATION_CHECKS",
+        "AWS_APPLICATION_STATUS_CHECKS",
+        "AWS_DELIVERY_STATUS_CHECKS",
+        "AWS_DELIVERY_CHECKS",
+        "AWS_DELIVERY_CHECK_REGISTRY",
+        "AWS_SECURITY_GOVERNANCE_CHECKS",
+        "AWS_SECURITY_GOVERNANCE_STATUS_CHECKS",
+        "AWS_SECURITY_GOVERNANCE_CHECK_REGISTRY",
+        "CHECK_REGISTRATION",
+        "AWS_CREDENTIALS_CONFIG_CHECKS",
+        "AWS_CREDENTIALS_CONFIG_STATUS_CHECKS",
+        "AWS_CREDENTIALS_CONFIG_CHECK_REGISTRY",
+        "AWS_CREDENTIALS_CONFIG_CHECK_FUNCTIONS",
+        "AWS_CREDENTIALS_CONFIG_ASSET_TYPE_CHECKS",
+        "AWS_CREDENTIALS_CONFIG_CHECK_MAP",
+        "AWS_CREDENTIAL_CONFIG_CHECKS",
+        "AWS_ACCOUNT_OPERATIONS_CHECKS",
+        "AWS_ACCOUNT_OPERATIONS_STATUS_CHECKS",
+        "AWS_ACCOUNT_OPERATIONS_CHECK_REGISTRY",
+        "AWS_ACCOUNT_OPERATIONS_CHECK_FUNCTIONS",
     ):
         registry = getattr(provider_module, registry_name, None)
         if isinstance(registry, dict):

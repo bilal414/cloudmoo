@@ -159,7 +159,19 @@ class AWSPriority0ModelIntegrationTests(SimpleTestCase):
             "apps.console.cloud.aws.backup.sync_aws_backup_assets"
         ) as backups, patch(
             "apps.console.cloud.aws.backup.sync_aws_snapshots"
-        ) as snapshots:
+        ) as snapshots, patch(
+            "apps.console.cloud.aws.data_services.sync_aws_data_service_assets"
+        ) as data_services, patch(
+            "apps.console.cloud.aws.application_services.sync_aws_application_service_assets"
+        ) as application_services, patch(
+            "apps.console.cloud.aws.delivery.sync_aws_delivery_assets"
+        ) as delivery, patch(
+            "apps.console.cloud.aws.security_governance.sync_aws_security_governance_assets"
+        ) as security_governance, patch(
+            "apps.console.cloud.aws.credentials_config.sync_aws_credentials_config_assets"
+        ) as credentials_config, patch(
+            "apps.console.cloud.aws.account_operations.sync_aws_account_operations_assets"
+        ) as account_operations:
             account.sync_assets()
 
         for sync in (
@@ -170,6 +182,12 @@ class AWSPriority0ModelIntegrationTests(SimpleTestCase):
             certificates,
             backups,
             snapshots,
+            data_services,
+            application_services,
+            delivery,
+            security_governance,
+            credentials_config,
+            account_operations,
         ):
             sync.assert_called_once_with(account)
         legacy_mocks["sync_acm_certificates"].assert_not_called()

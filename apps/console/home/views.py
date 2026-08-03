@@ -30,6 +30,12 @@ from apps.console.cloud.aws.observability import AWS_OBSERVABILITY_ASSET_MODELS
 from apps.console.cloud.aws.containers import AWS_CONTAINER_ASSET_MODELS
 from apps.console.cloud.aws.edge import AWS_EDGE_ASSET_MODELS
 from apps.console.cloud.aws.backup import AWS_BACKUP_ASSET_MODELS
+from apps.console.cloud.aws.data_services import AWS_DATA_SERVICE_ASSET_MODELS
+from apps.console.cloud.aws.application_services import AWS_APPLICATION_ASSET_MODELS
+from apps.console.cloud.aws.delivery import AWS_DELIVERY_ASSET_MODELS
+from apps.console.cloud.aws.security_governance import AWS_SECURITY_GOVERNANCE_ASSET_MODELS
+from apps.console.cloud.aws.credentials_config import AWS_CREDENTIALS_CONFIG_ASSET_MODELS
+from apps.console.cloud.aws.account_operations import AWS_ACCOUNT_OPERATIONS_ASSET_MODELS
 from apps.console.cloud.linode.models import CoreLinodeVolume, CoreLinodeServer
 from apps.console.cloud.models import CoreCloud
 from apps.console.cloud.digitalocean.models import (
@@ -68,6 +74,16 @@ _AWS_PRIORITY0_ASSET_MODELS += tuple(AWS_OBSERVABILITY_ASSET_MODELS.items())
 _AWS_PRIORITY0_ASSET_MODELS += tuple(AWS_CONTAINER_ASSET_MODELS.items())
 _AWS_PRIORITY0_ASSET_MODELS += tuple(AWS_EDGE_ASSET_MODELS.items())
 _AWS_PRIORITY0_ASSET_MODELS += tuple(AWS_BACKUP_ASSET_MODELS.items())
+_AWS_PRIORITY1_ASSET_MODELS = (
+    tuple(AWS_DATA_SERVICE_ASSET_MODELS.items())
+    + tuple(AWS_APPLICATION_ASSET_MODELS.items())
+    + tuple(AWS_DELIVERY_ASSET_MODELS.items())
+)
+_AWS_PRIORITY2_ASSET_MODELS = (
+    tuple(AWS_SECURITY_GOVERNANCE_ASSET_MODELS.items())
+    + tuple(AWS_CREDENTIALS_CONFIG_ASSET_MODELS.items())
+    + tuple(AWS_ACCOUNT_OPERATIONS_ASSET_MODELS.items())
+)
 
 
 class IndexView(LoginRequiredMixin, TemplateView):
@@ -116,6 +132,8 @@ class IndexView(LoginRequiredMixin, TemplateView):
             'certificates': 0,
             'lightsail_misc': 0,
             **{asset_type: 0 for asset_type, _model in _AWS_PRIORITY0_ASSET_MODELS},
+            **{asset_type: 0 for asset_type, _model in _AWS_PRIORITY1_ASSET_MODELS},
+            **{asset_type: 0 for asset_type, _model in _AWS_PRIORITY2_ASSET_MODELS},
         } for cloud in clouds}
 
         # Count DigitalOcean assets
@@ -376,6 +394,30 @@ class IndexView(LoginRequiredMixin, TemplateView):
             for item in resource_counts:
                 cloud_asset_counts[item['owner__cloud']][asset_type] += item['count']
 
+        # Priority 1 AWS platform and data-service resources retain their
+        # exact persisted type so the dashboard does not collapse distinct
+        # databases, integrations, or delivery events into generic totals.
+        for asset_type, resource_model in _AWS_PRIORITY1_ASSET_MODELS:
+            resource_counts = resource_model.objects.filter(
+                owner__cloud__account=active_account
+            ).exclude(
+                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
+            ).values('owner__cloud').annotate(count=Count('id'))
+            for item in resource_counts:
+                cloud_asset_counts[item['owner__cloud']][asset_type] += item['count']
+
+        # Priority 2 security, credential/configuration, and account-operation
+        # resources are counted from their model maps so new families do not
+        # require one-off dashboard fields.
+        for asset_type, resource_model in _AWS_PRIORITY2_ASSET_MODELS:
+            resource_counts = resource_model.objects.filter(
+                owner__cloud__account=active_account
+            ).exclude(
+                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
+            ).values('owner__cloud').annotate(count=Count('id'))
+            for item in resource_counts:
+                cloud_asset_counts[item['owner__cloud']][asset_type] += item['count']
+
         # Update the counts for UpCloud
         upcloud_counts = CoreUpCloudServer.objects.filter(
             owner__cloud__account=active_account
@@ -447,6 +489,20 @@ class IndexView(LoginRequiredMixin, TemplateView):
             for asset_type, _model in _AWS_PRIORITY0_ASSET_MODELS
         }
         total_priority0_assets = sum(total_priority0_counts.values())
+        total_priority1_counts = {
+            asset_type: sum(
+                cloud[asset_type] for cloud in cloud_asset_counts.values()
+            )
+            for asset_type, _model in _AWS_PRIORITY1_ASSET_MODELS
+        }
+        total_priority1_assets = sum(total_priority1_counts.values())
+        total_priority2_counts = {
+            asset_type: sum(
+                cloud[asset_type] for cloud in cloud_asset_counts.values()
+            )
+            for asset_type, _model in _AWS_PRIORITY2_ASSET_MODELS
+        }
+        total_priority2_assets = sum(total_priority2_counts.values())
         total_assets = (
             total_servers + total_volumes + total_databases
             + total_lambda_functions + total_dynamodb_tables + total_s3_buckets
@@ -457,7 +513,8 @@ class IndexView(LoginRequiredMixin, TemplateView):
             + total_kubernetes_clusters + total_kubernetes_node_pools + total_vpcs
             + total_vpc_peerings + total_vpc_nat_gateways + total_domains
             + total_dns_records + total_cdn_endpoints + total_certificates
-            + total_lightsail_misc + total_priority0_assets
+            + total_lightsail_misc + total_priority0_assets + total_priority1_assets
+            + total_priority2_assets
         )
 
         # Attach counts to cloud objects
@@ -495,6 +552,14 @@ class IndexView(LoginRequiredMixin, TemplateView):
                 asset_type: cloud_asset_counts[cloud.id][asset_type]
                 for asset_type, _model in _AWS_PRIORITY0_ASSET_MODELS
             }
+            cloud.priority1_asset_counts = {
+                asset_type: cloud_asset_counts[cloud.id][asset_type]
+                for asset_type, _model in _AWS_PRIORITY1_ASSET_MODELS
+            }
+            cloud.priority2_asset_counts = {
+                asset_type: cloud_asset_counts[cloud.id][asset_type]
+                for asset_type, _model in _AWS_PRIORITY2_ASSET_MODELS
+            }
             cloud.total_assets = (
                 cloud.server_count + cloud.volume_count + cloud.database_count
                 + cloud.lambda_function_count + cloud.dynamodb_table_count
@@ -511,6 +576,8 @@ class IndexView(LoginRequiredMixin, TemplateView):
                 + cloud.dns_record_count + cloud.cdn_endpoint_count
                 + cloud.certificate_count + cloud.lightsail_misc_count
                 + sum(cloud.priority0_asset_counts.values())
+                + sum(cloud.priority1_asset_counts.values())
+                + sum(cloud.priority2_asset_counts.values())
             )
 
         # Calculate asset breakdown percentages
@@ -551,11 +618,39 @@ class IndexView(LoginRequiredMixin, TemplateView):
             }
             for asset_type, count in total_priority0_counts.items()
         })
+        asset_breakdown.update({
+            asset_type: {
+                'count': count,
+                'percentage': round((count / total_assets * 100) if total_assets > 0 else 0, 1),
+            }
+            for asset_type, count in total_priority1_counts.items()
+        })
+        asset_breakdown.update({
+            asset_type: {
+                'count': count,
+                'percentage': round((count / total_assets * 100) if total_assets > 0 else 0, 1),
+            }
+            for asset_type, count in total_priority2_counts.items()
+        })
 
         priority0_asset_counts = {
             cloud_id: {
                 asset_type: cloud_counts[asset_type]
                 for asset_type, _model in _AWS_PRIORITY0_ASSET_MODELS
+            }
+            for cloud_id, cloud_counts in cloud_asset_counts.items()
+        }
+        priority1_asset_counts = {
+            cloud_id: {
+                asset_type: cloud_counts[asset_type]
+                for asset_type, _model in _AWS_PRIORITY1_ASSET_MODELS
+            }
+            for cloud_id, cloud_counts in cloud_asset_counts.items()
+        }
+        priority2_asset_counts = {
+            cloud_id: {
+                asset_type: cloud_counts[asset_type]
+                for asset_type, _model in _AWS_PRIORITY2_ASSET_MODELS
             }
             for cloud_id, cloud_counts in cloud_asset_counts.items()
         }
@@ -598,6 +693,14 @@ class IndexView(LoginRequiredMixin, TemplateView):
             'total_assets': total_assets,
             'asset_breakdown': asset_breakdown,
             'priority0_asset_counts': priority0_asset_counts,
+            'priority1_asset_counts': priority1_asset_counts,
+            'priority2_asset_counts': priority2_asset_counts,
+            'total_priority2_counts': total_priority2_counts,
+            'total_priority2_assets': total_priority2_assets,
+            **{
+                f'total_{asset_type}': count
+                for asset_type, count in total_priority1_counts.items()
+            },
             'show_welcome': False
         })
 
