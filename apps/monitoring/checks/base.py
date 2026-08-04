@@ -4,7 +4,18 @@ from datetime import datetime
 # Statuses that represent a failed check rather than the asset's health.
 # They are recorded for troubleshooting, but are not shown as uptime states
 # and do not trigger status-change notifications.
-NON_ALERTING_STATUSES = ['invalid_access_token', 'error', 'not_found']
+NON_ALERTING_STATUSES = [
+    'invalid_access_token',
+    'error',
+    'not_found',
+    # Provider integrations use explicit states for unavailable credentials,
+    # unsupported/undocumented surfaces, and an external provider status page.
+    # These are diagnostics, not resource lifecycle states, and must not
+    # generate false uptime transitions or outage notifications.
+    'credentials_unavailable',
+    'unsupported',
+    'external_health_unavailable',
+]
 
 # A provider API must never be able to hold a Celery worker indefinitely.
 REQUEST_TIMEOUT_SECONDS = 15

@@ -64,6 +64,7 @@ from apps.console.cloud.linode.models import CoreLinodeServer, CoreLinodeVolume
 from apps.console.cloud.models import CoreCloudServiceProvider
 from apps.console.cloud.upcloud.models import CoreUpCloudServer, CoreUpCloudVolume
 from apps.console.cloud.vultr.models import CoreVultrVolume, CoreVultrServer, CoreVultrDatabase
+from apps.console.cloud.vultr.integration import get_vultr_resource_models
 from django.views.decorators.http import require_POST
 from django.utils.decorators import method_decorator
 from operator import attrgetter
@@ -227,6 +228,7 @@ class AssetDetailView(DetailView):
                 'server': CoreVultrServer,
                 'volume': CoreVultrVolume,
                 'database': CoreVultrDatabase,
+                **get_vultr_resource_models(),
             },
             'hetzner': {
                 'server': CoreHetznerServer,

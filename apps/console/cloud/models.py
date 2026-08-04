@@ -391,6 +391,27 @@ class CoreCloud(TimeStampedModel):
         except NotImplementedError:
             raise NotImplementedError("Validation not implemented for this cloud provider")
 
+    def _asset_relations_for_provider(self):
+        """Return the shared and provider-specific asset relations.
+
+        Vultr's resource families are intentionally split across modules.  A
+        dynamic hook keeps the inventory list, monitoring scheduler, cleanup,
+        and dashboard in sync without making the core model import every
+        provider model during Django app initialization.
+        """
+        relations = list(self.ASSET_RELATIONS)
+        try:
+            provider_code = self.provider.code.lower()
+        except AttributeError:
+            return tuple(relations)
+        if provider_code == "vultr":
+            from apps.console.cloud.vultr.integration import get_vultr_asset_relations
+
+            for relation in get_vultr_asset_relations():
+                if relation not in relations:
+                    relations.append(relation)
+        return tuple(relations)
+
     def get_all_assets(self):
         """
         Gets all assets associated with this cloud.
@@ -398,7 +419,7 @@ class CoreCloud(TimeStampedModel):
         """
         provider_account = self.provider_account
         assets = []
-        for relation_name, asset_type in self.ASSET_RELATIONS:
+        for relation_name, asset_type in self._asset_relations_for_provider():
             manager = getattr(provider_account, relation_name, None)
             if manager is not None:
                 assets.extend((asset, asset_type) for asset in manager.all())
@@ -413,7 +434,7 @@ class CoreCloud(TimeStampedModel):
         """
         provider_account = self.provider_account
         assets = []
-        for relation_name, asset_type in self.ASSET_RELATIONS:
+        for relation_name, asset_type in self._asset_relations_for_provider():
             manager = getattr(provider_account, relation_name, None)
             if manager is not None:
                 active_assets = manager.exclude(
@@ -431,7 +452,7 @@ class CoreCloud(TimeStampedModel):
         """
         provider_account = self.provider_account
         assets = []
-        for relation_name, asset_type in self.ASSET_RELATIONS:
+        for relation_name, asset_type in self._asset_relations_for_provider():
             manager = getattr(provider_account, relation_name, None)
             if manager is not None:
                 monitored_assets = manager.filter(
@@ -447,7 +468,7 @@ class CoreCloud(TimeStampedModel):
         """
         try:
             provider_account = self.provider_account
-            for relation_name, _asset_type in self.ASSET_RELATIONS:
+            for relation_name, _asset_type in self._asset_relations_for_provider():
                 manager = getattr(provider_account, relation_name, None)
                 if manager is None:
                     continue

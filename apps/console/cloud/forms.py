@@ -152,14 +152,12 @@ class CloudEditForm(forms.ModelForm):
                 self.fields['object_storage_region'].initial = hetzner_account.object_storage_region
         elif self.instance.provider.code == 'vultr':
             self.fields['access_token'] = forms.CharField(
-                widget=forms.TextInput(attrs={
+                widget=forms.PasswordInput(attrs={
                     'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
-                    'placeholder': 'Enter your Vultr access token'
+                    'placeholder': 'Leave blank to keep the existing Vultr access token'
                 }),
                 required=False
             )
-            if self.instance.vultr.exists():
-                self.fields['access_token'].initial = self.instance.vultr.first().access_token
         elif self.instance.provider.code == 'aws':
             self.fields['access_key'] = forms.CharField(
                 widget=forms.TextInput(attrs={

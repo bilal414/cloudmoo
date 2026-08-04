@@ -7,6 +7,7 @@ from apps.console.cloud.models import (
     validate_provider_response,
 )
 from apps.console.utils.models import UtilCloud, UtilAsset
+from apps.monitoring.metadata import redact_sensitive_metadata
 import requests
 from django.utils import timezone
 
@@ -38,53 +39,37 @@ class CoreVultrAccount(UtilCloud):
 
     def sync_assets(self):
         self.sync_servers()
-        # self.sync_databases()
+        self.sync_databases()
         self.sync_volumes()
+        # Additional Vultr families are implemented in read-only service
+        # modules.  Legacy server/volume/database tables remain the source of
+        # truth for those three historical asset types.
+        from apps.console.cloud.vultr.integration import sync_vultr_inventory
+
+        sync_vultr_inventory(self)
         self.last_synced = timezone.now()
         self.save()
 
     def _make_api_call(self, endpoint, params=None):
-        headers = {
-            'Authorization': f'Bearer {self.access_token}',
-            'Content-Type': 'application/json'
-        }
-        url = f'https://api.vultr.com/v2/{endpoint}'
-        response = requests.get(url, headers=headers, params=params, timeout=15)
-        response.raise_for_status()
-        return response.json()
+        # Keep legacy callers on the same bounded GET-only transport as the
+        # expanded Vultr resource families.  The endpoint is validated by the
+        # shared client before any request is sent.
+        from apps.console.cloud.vultr.resources_base import VultrClient
+
+        return VultrClient(self.access_token).get_json(endpoint, params=params)
 
     def _paginate_api_call(self, endpoint):
-        all_items = []
-        cursor = None
-        visited_cursors = set()
-        while True:
-            if cursor in visited_cursors or len(visited_cursors) >= 10000:
-                raise CloudInventoryTransientError(
-                    'Vultr returned an invalid pagination sequence'
-                )
-            if cursor:
-                visited_cursors.add(cursor)
-            params = {'per_page': 100}
-            if cursor:
-                params['cursor'] = cursor
-            data = self._make_api_call(endpoint, params)
-            all_items.extend(require_inventory_list(data, [endpoint], 'Vultr'))
+        from apps.console.cloud.vultr.resources_base import list_vultr_collection
 
-            meta = data.get('meta')
-            links = meta.get('links') if isinstance(meta, dict) else None
-            if not isinstance(links, dict):
-                raise CloudInventoryTransientError(
-                    'Vultr returned an incomplete pagination response'
-                )
-            next_cursor = links.get('next')
-            if next_cursor is not None and not isinstance(next_cursor, str):
-                raise CloudInventoryTransientError(
-                    'Vultr returned an invalid pagination cursor'
-                )
-            cursor = next_cursor
-            if not cursor:
-                break
-        return all_items
+        collection_keys = {
+            'instances': 'instances',
+            'databases': 'databases',
+            'blocks': 'blocks',
+        }
+        collection_key = collection_keys.get(endpoint)
+        if collection_key is None:
+            raise CloudInventoryTransientError('Vultr inventory endpoint is unsupported')
+        return list_vultr_collection(self, endpoint, collection_key)
 
     def sync_servers(self):
         all_instances = self._paginate_api_call('instances')
@@ -99,7 +84,7 @@ class CoreVultrAccount(UtilCloud):
                 # Update server while preserving monitoring status
                 server.name = instance_data['label'] or instance_data['os']
                 server.type = CoreVultrServer.Type.SERVER
-                server.metadata = instance_data
+                server.metadata = redact_sensitive_metadata(instance_data)
                 server.save()
             except CoreVultrServer.DoesNotExist:
                 # Create new server with default ACTIVE monitoring
@@ -109,13 +94,15 @@ class CoreVultrAccount(UtilCloud):
                     name=instance_data['label'] or instance_data['os'],
                     monitoring=CoreVultrServer.Monitoring.ACTIVE,
                     type=CoreVultrServer.Type.SERVER,
-                    metadata=instance_data
+                    metadata=redact_sensitive_metadata(instance_data)
                 )
             current_instance_ids.append(instance_data['id'])
 
-        CoreVultrServer.objects.filter(owner=self).exclude(unique_id__in=current_instance_ids).update(
-            monitoring=CoreVultrServer.Monitoring.NO_LONGER_EXISTS
-        )
+        for server in CoreVultrServer.objects.filter(owner=self).exclude(
+            unique_id__in=current_instance_ids
+        ):
+            server.monitoring = CoreVultrServer.Monitoring.NO_LONGER_EXISTS
+            server.save()
 
     def sync_databases(self):
         all_databases = self._paginate_api_call('databases')
@@ -130,7 +117,7 @@ class CoreVultrAccount(UtilCloud):
                 # Update database while preserving monitoring status
                 database.name = database_data['label']
                 database.type = CoreVultrServer.Type.DATABASE
-                database.metadata = database_data
+                database.metadata = redact_sensitive_metadata(database_data)
                 database.save()
             except CoreVultrDatabase.DoesNotExist:
                 # Create new database with default ACTIVE monitoring
@@ -140,13 +127,15 @@ class CoreVultrAccount(UtilCloud):
                     name=database_data['label'],
                     monitoring=CoreVultrDatabase.Monitoring.ACTIVE,
                     type=CoreVultrServer.Type.DATABASE,
-                    metadata=database_data
+                    metadata=redact_sensitive_metadata(database_data)
                 )
             current_database_ids.append(database_data['id'])
 
-        CoreVultrDatabase.objects.filter(owner=self).exclude(unique_id__in=current_database_ids).update(
-            monitoring=CoreVultrDatabase.Monitoring.NO_LONGER_EXISTS
-        )
+        for database in CoreVultrDatabase.objects.filter(owner=self).exclude(
+            unique_id__in=current_database_ids
+        ):
+            database.monitoring = CoreVultrDatabase.Monitoring.NO_LONGER_EXISTS
+            database.save()
 
     def sync_volumes(self):
         all_volumes = self._paginate_api_call('blocks')
@@ -162,7 +151,7 @@ class CoreVultrAccount(UtilCloud):
                 volume.name = f"Block Storage {volume_data['size_gb']} GB" if not volume_data['label'] else volume_data[
                     'label']
                 volume.type = CoreVultrServer.Type.VOLUME
-                volume.metadata = volume_data
+                volume.metadata = redact_sensitive_metadata(volume_data)
                 volume.save()
             except CoreVultrVolume.DoesNotExist:
                 # Create new volume with default ACTIVE monitoring
@@ -173,13 +162,15 @@ class CoreVultrAccount(UtilCloud):
                         'label'],
                     monitoring=CoreVultrVolume.Monitoring.ACTIVE,
                     type=CoreVultrServer.Type.VOLUME,
-                    metadata=volume_data
+                    metadata=redact_sensitive_metadata(volume_data)
                 )
             current_volume_ids.append(volume_data['id'])
 
-        CoreVultrVolume.objects.filter(owner=self).exclude(unique_id__in=current_volume_ids).update(
-            monitoring=CoreVultrVolume.Monitoring.NO_LONGER_EXISTS
-        )
+        for volume in CoreVultrVolume.objects.filter(owner=self).exclude(
+            unique_id__in=current_volume_ids
+        ):
+            volume.monitoring = CoreVultrVolume.Monitoring.NO_LONGER_EXISTS
+            volume.save()
 
 
 class CoreVultrServer(UtilAsset):
@@ -190,6 +181,11 @@ class CoreVultrServer(UtilAsset):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.metadata is not None:
+            self.metadata = redact_sensitive_metadata(self.metadata)
+        return super().save(*args, **kwargs)
 
     @property
     def name_alt(self):
@@ -218,6 +214,11 @@ class CoreVultrDatabase(UtilAsset):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        if self.metadata is not None:
+            self.metadata = redact_sensitive_metadata(self.metadata)
+        return super().save(*args, **kwargs)
+
 
 class CoreVultrVolume(UtilAsset):
     owner = models.ForeignKey(CoreVultrAccount, on_delete=models.CASCADE, related_name='volumes')
@@ -227,6 +228,11 @@ class CoreVultrVolume(UtilAsset):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.metadata is not None:
+            self.metadata = redact_sensitive_metadata(self.metadata)
+        return super().save(*args, **kwargs)
 
     @property
     def name_alt(self):

@@ -219,6 +219,12 @@ def get_check_function(provider, asset_type):
         # the legacy checker from returning raw provider exceptions or
         # provider-specific lifecycle strings to the monitoring engine.
         module_name = "apps.monitoring.checks.hetzner_resources"
+    elif provider_name == "vultr":
+        # Vultr's service-family modules are unified behind the read-only
+        # resolver in ``checks.vultr``.  This keeps legacy server/volume
+        # checks compatible while allowing new families to register explicit
+        # handlers without dynamic imports from the task runner.
+        module_name = "apps.monitoring.checks.vultr"
     else:
         module_name = f"apps.monitoring.checks.{provider_name}"
 
@@ -229,6 +235,11 @@ def get_check_function(provider, asset_type):
         elif provider_name == "hetzner" and module_name.endswith("hetzner_resources"):
             resolver = getattr(provider_module, "get_hetzner_check_function", None)
             check = resolver(normalized_type) if callable(resolver) else None
+        elif provider_name == "vultr":
+            resolver = getattr(provider_module, "get_vultr_check_function", None)
+            check = resolver(normalized_type) if callable(resolver) else None
+            if check is None:
+                check = _lookup_check(provider_module, provider_name, normalized_type)
         else:
             check = getattr(
                 provider_module,

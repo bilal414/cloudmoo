@@ -285,6 +285,84 @@ PROVIDER_METADATA_FIELDS = {
             'block.region': 'Region',
             'block.attached_to_instance': 'Attached To',
             'block.mount_id': 'Mount ID'
+        },
+        'database': {
+            'database.label': 'Name',
+            'database.status': 'Status',
+            'database.engine': 'Engine',
+            'database.version': 'Version',
+            'database.region': 'Region',
+            'database.plan': 'Plan',
+            'database.latest_backup': 'Latest Backup',
+        },
+        'vultr_bare_metal': {
+            'bare_metal.label': 'Name',
+            'bare_metal.status': 'Status',
+            'bare_metal.region': 'Region',
+            'bare_metal.plan': 'Plan',
+            'bare_metal.main_ip': 'Main IP',
+        },
+        'vultr_compute_plan': {
+            'plan.name': 'Name',
+            'plan.description': 'Description',
+            'plan.vcpus': 'vCPUs',
+            'plan.ram': 'Memory',
+            'plan.monthly_cost': 'Monthly Cost',
+        },
+        'vultr_block_snapshot': {
+            'snapshot.description': 'Description',
+            'snapshot.date_created': 'Created At',
+            'snapshot.size': 'Size',
+            'snapshot.status': 'Status',
+        },
+        'vultr_firewall_rule': {
+            'firewall_rule.action': 'Action',
+            'firewall_rule.protocol': 'Protocol',
+            'firewall_rule.port': 'Port',
+            'firewall_rule.source': 'Source',
+        },
+        'vultr_storage_cluster': {
+            'storage_cluster.status': 'Status',
+            'storage_cluster.region': 'Region',
+            'storage_cluster.capacity': 'Capacity',
+        },
+        'vultr_storage_tier': {
+            'storage_tier.status': 'Status',
+            'storage_tier.region': 'Region',
+            'storage_tier.capacity': 'Capacity',
+        },
+        'vultr_storage_gateway': {
+            'storage_gateway.status': 'Status',
+            'storage_gateway.vpc_id': 'VPC',
+            'storage_gateway.region': 'Region',
+        },
+        'vultr_registry_repository': {
+            'repository.name': 'Repository',
+            'repository.artifact_count': 'Artifacts',
+            'repository.pull_count': 'Pulls',
+        },
+        'vultr_registry_artifact': {
+            'artifact.tag': 'Tag',
+            'artifact.digest': 'Digest',
+            'artifact.size': 'Size',
+        },
+        'vultr_inference': {
+            'inference.status': 'Status',
+            'inference.model': 'Model',
+            'inference.region': 'Region',
+        },
+        'vultr_plan': {
+            'plan.name': 'Name',
+            'plan.description': 'Description',
+            'plan.vcpus': 'vCPUs',
+            'plan.ram': 'Memory',
+            'plan.monthly_cost': 'Monthly Cost',
+        },
+        'vultr_region': {
+            'region.id': 'ID',
+            'region.city': 'City',
+            'region.country': 'Country',
+            'region.status': 'Status',
         }
     },
     'hetzner': {

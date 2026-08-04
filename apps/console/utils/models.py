@@ -79,6 +79,25 @@ class UtilAsset(TimeStampedModel):
         KUBERNETES_CLUSTER = "kubernetes_cluster", "Kubernetes Cluster"
         KUBERNETES_NODE_POOL = "kubernetes_node_pool", "Kubernetes Node Pool"
 
+        # Vultr read-only inventory families that do not have a precise
+        # equivalent in the legacy provider-neutral set above.
+        VULTR_BARE_METAL = "vultr_bare_metal", "Vultr Bare Metal"
+        VULTR_BLOCK_SNAPSHOT = "vultr_block_snapshot", "Vultr Block Snapshot"
+        VULTR_VFS = "vultr_vfs", "Vultr Virtual File System"
+        VULTR_STORAGE_GATEWAY = "vultr_storage_gateway", "Vultr Storage Gateway"
+        VULTR_BANDWIDTH_METRIC = "vultr_bandwidth_metric", "Vultr Bandwidth Metric"
+        VULTR_REGISTRY_REPOSITORY = "vultr_registry_repository", "Vultr Registry Repository"
+        VULTR_REGISTRY_ARTIFACT = "vultr_registry_artifact", "Vultr Registry Artifact"
+        VULTR_INFERENCE = "vultr_inference", "Vultr Inference Endpoint"
+        VULTR_FIREWALL_RULE = "vultr_firewall_rule", "Vultr Firewall Rule"
+        VULTR_STORAGE_CLUSTER = "vultr_storage_cluster", "Vultr Storage Cluster"
+        VULTR_STORAGE_TIER = "vultr_storage_tier", "Vultr Storage Tier"
+        VULTR_PLAN = "vultr_plan", "Vultr Plan"
+        VULTR_REGION = "vultr_region", "Vultr Region"
+        VULTR_COMPUTE_PLAN = "vultr_compute_plan", "Vultr Compute Plan"
+        VULTR_ACCOUNT_LOG = "vultr_account_log", "Vultr Account Log"
+        VULTR_STATUS_INCIDENT = "vultr_status_incident", "Vultr Status Incident"
+
         # Hetzner Cloud inventory families.  These names are provider-neutral
         # where the same concept is useful across providers, while the
         # provider-specific adapter remains responsible for semantics.

@@ -16,6 +16,7 @@ from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.vultr.models import (
     CoreVultrAccount, CoreVultrServer, CoreVultrDatabase, CoreVultrVolume
 )
+from apps.console.cloud.vultr.integration import get_vultr_resource_models
 from apps.console.cloud.aws.models import (
     CoreAWSAccount, CoreAWSInstance, CoreAWSVolume, CoreAWSRDSDatabase, CoreAWSLambda, CoreAWSDynamoDB, CoreAWSS3Bucket, CoreAWSACMCertificate, CoreAWSSnapshot, CoreAWSElasticIP, CoreAWSLoadBalancer, CoreAWSSecurityGroup, CoreAWSECSService, CoreAWSECSTask
 )
@@ -216,6 +217,21 @@ class CoreVultrDatabaseAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'monitoring', 'type')
     list_filter = ('monitoring', 'type')
     search_fields = ('name', 'unique_id')
+
+
+class CoreVultrInventoryAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _vultr_asset_model in get_vultr_resource_models().values():
+    if _vultr_asset_model in {CoreVultrServer, CoreVultrVolume, CoreVultrDatabase}:
+        continue
+    try:
+        admin.site.register(_vultr_asset_model, CoreVultrInventoryAssetAdmin)
+    except admin.sites.AlreadyRegistered:
+        pass
 
 
 # AWS Admin
