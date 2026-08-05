@@ -79,24 +79,62 @@ class CoreAWSAccount(UtilCloud):
         self.sync_lambda_functions()
         self.sync_dynamodb_tables()
         self.sync_s3_buckets()
-        self.sync_acm_certificates()
-        self.sync_snapshots()
         self.sync_elastic_ips()
         self.sync_load_balancers()
         self.sync_security_groups()
         self.sync_ecs_services()
         self.sync_ecs_tasks()
+
+        # Priority 0 adapters are imported lazily because each provider module
+        # refers back to CoreAWSAccount for its persisted owner relation.
+        # Calling them directly is intentional: discovery/authentication
+        # failures must remain visible to the cloud sync caller.
+        from . import (
+            application_services,
+            backup,
+            containers,
+            data_services,
+            delivery,
+            edge,
+            network,
+            observability,
+            account_operations,
+            credentials_config,
+            security_governance,
+        )
+
+        network.sync_aws_network_assets(self)
+        observability.sync_aws_observability_assets(self)
+        containers.sync_aws_container_assets(self)
+        edge.sync_aws_edge_assets(self)
+        backup.sync_aws_backup_assets(self)
+        backup.sync_aws_snapshots(self)
+        edge.sync_aws_regional_certificates(self)
+        data_services.sync_aws_data_service_assets(self)
+        application_services.sync_aws_application_service_assets(self)
+        delivery.sync_aws_delivery_assets(self)
+
+        self.sync_lightsail_assets()
+        security_governance.sync_aws_security_governance_assets(self)
+        credentials_config.sync_aws_credentials_config_assets(self)
+        account_operations.sync_aws_account_operations_assets(self)
         self.last_synced = timezone.now()
         self.save()
 
-    def _get_aws_client(self, service='ec2'):
+    def _get_aws_client(self, service='ec2', region=None):
         return boto3.client(
             service,
             aws_access_key_id=self.access_key,
             aws_secret_access_key=self.secret_key,
-            region_name=self.region,
+            region_name=region or self.region,
             config=AWS_CLIENT_CONFIG,
         )
+
+    def sync_lightsail_assets(self):
+        """Synchronize Lightsail resources without invoking mutating APIs."""
+        from .lightsail import sync_lightsail_assets
+
+        return sync_lightsail_assets(self)
 
     def sync_servers(self):
         ec2 = self._get_aws_client()
@@ -1043,16 +1081,31 @@ class CoreAWSACMCertificate(UtilAsset):
         return self.name
 
     @property
+    def monitoring_credentials(self):
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        region = metadata.get('_cloudmoo_region') or self.owner.region
+        return {
+            'access_key': self.owner.access_key,
+            'secret_key': self.owner.secret_key,
+            'region': region,
+            'resource_region': region,
+            'asset_type': self.type or UtilAsset.Type.ACM_CERTIFICATE,
+            'metadata': metadata,
+        }
+
+    @property
     def provider_url(self):
-        return f"https://{self.owner.region}.console.aws.amazon.com/acm/home?region={self.owner.region}#/certificates/{self.unique_id.split('/')[-1]}"
+        region = self.monitoring_credentials['resource_region']
+        return f"https://{region}.console.aws.amazon.com/acm/home?region={region}#/certificates/{self.unique_id.split('/')[-1]}"
 
     def check_status(self):
         try:
-            acm = self.owner._get_aws_client('acm')
-            response = acm.describe_certificate(CertificateArn=self.unique_id)
-            cert_data = response['Certificate']
-            current_status = cert_data['Status']
-            return current_status, cert_data
+            from apps.monitoring.checks.aws import check_aws_acm_certificate_status
+
+            return check_aws_acm_certificate_status(
+                self.unique_id,
+                self.monitoring_credentials,
+            )
         except Exception as e:
             error_status = 'not_found' if 'ResourceNotFoundException' in str(e) else 'error'
             return error_status, str(e)
@@ -1068,16 +1121,49 @@ class CoreAWSSnapshot(UtilAsset):
         return self.name
 
     @property
+    def monitoring_credentials(self):
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        region = metadata.get('_cloudmoo_region') or self.owner.region
+        provider_id = (
+            metadata.get('_cloudmoo_provider_id')
+            or metadata.get('_cloudmoo_raw_id')
+            or self.unique_id
+        )
+        return {
+            'access_key': self.owner.access_key,
+            'secret_key': self.owner.secret_key,
+            'region': region,
+            'resource_region': region,
+            'provider_id': provider_id,
+            'resource_name': provider_id,
+            'snapshot_kind': metadata.get('_cloudmoo_snapshot_kind'),
+            'asset_type': self.type or UtilAsset.Type.SNAPSHOT,
+            'metadata': metadata,
+        }
+
+    @property
     def provider_url(self):
-        return f"https://{self.owner.region}.console.aws.amazon.com/ec2/home?region={self.owner.region}#Snapshots:snapshotId={self.unique_id}"
+        region = self.monitoring_credentials['resource_region']
+        snapshot_id = self.monitoring_credentials['provider_id']
+        return f"https://{region}.console.aws.amazon.com/ec2/home?region={region}#Snapshots:snapshotId={snapshot_id}"
 
     def check_status(self):
         try:
-            ec2 = self.owner._get_aws_client('ec2')
-            response = ec2.describe_snapshots(SnapshotIds=[self.unique_id])
-            snapshot_data = response['Snapshots'][0]
-            current_status = snapshot_data['State']
-            return current_status, snapshot_data
+            from apps.monitoring.checks.aws_backup import (
+                check_aws_rds_snapshot_status,
+                check_aws_snapshot_status,
+            )
+
+            credentials = self.monitoring_credentials
+            snapshot_kind = credentials.get('snapshot_kind')
+            provider_id = credentials.get('provider_id') or self.unique_id
+            check = (
+                check_aws_rds_snapshot_status
+                if snapshot_kind in {'rds_instance', 'rds_cluster'}
+                else check_aws_snapshot_status
+            )
+
+            return check(provider_id, credentials)
         except Exception as e:
             error_status = 'not_found' if 'InvalidSnapshot.NotFound' in str(e) else 'error'
             return error_status, str(e)

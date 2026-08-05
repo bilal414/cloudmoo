@@ -41,6 +41,22 @@ def redact_sensitive_metadata(value):
             normalized_key = ''.join(
                 character for character in str(key).lower() if character.isalnum()
             )
+            if normalized_key == 'environment':
+                # Container APIs commonly return environment variables as a
+                # direct name/value map.  Keep the legacy
+                # Environment -> Variables shape traversable so its nested
+                # values retain the established redaction behavior.
+                if isinstance(child, dict) and not any(
+                    ''.join(character for character in str(child_key).lower() if character.isalnum())
+                    == 'variables'
+                    for child_key in child
+                ):
+                    redacted[key] = {variable: '[REDACTED]' for variable in child}
+                elif isinstance(child, dict):
+                    redacted[key] = redact_sensitive_metadata(child)
+                else:
+                    redacted[key] = '[REDACTED]'
+                continue
             if (
                 any(part in normalized_key for part in SENSITIVE_METADATA_KEY_PARTS)
                 or normalized_key == 'variables'
@@ -87,6 +103,166 @@ PROVIDER_METADATA_FIELDS = {
             'volume.region.name': 'Region',
             'volume.droplet_ids': 'Attached Droplets',
             'volume.filesystem_type': 'Filesystem Type'
+        },
+        'database': {
+            'database.name': 'Name',
+            'database.status': 'Status',
+            'database.engine': 'Engine',
+            'database.version': 'Version',
+            'database.region.slug': 'Region',
+            'database.size': 'Size',
+            'database.num_nodes': 'Nodes',
+            'database.storage_size_mib': 'Storage (MiB)',
+            'database.tags': 'Tags'
+        },
+        'load_balancer': {
+            'load_balancer.name': 'Name',
+            'load_balancer.status': 'Status',
+            'load_balancer.region.slug': 'Region',
+            'load_balancer.algorithm.type': 'Algorithm',
+            'load_balancer.droplet_ids': 'Attached Droplets',
+            'load_balancer.forwarding_rules': 'Forwarding Rules',
+            'load_balancer.health_check': 'Health Check',
+            'load_balancer.sticky_sessions': 'Sticky Sessions'
+        },
+        'snapshot': {
+            'snapshot.name': 'Name',
+            'snapshot.resource_type': 'Resource Type',
+            'snapshot.resource_id': 'Source Resource ID',
+            'snapshot.size_gigabytes': 'Size (GB)',
+            'snapshot.min_disk_size': 'Minimum Disk Size (GB)',
+            'snapshot.regions': 'Regions',
+            'snapshot.tags': 'Tags'
+        },
+        'backup': {
+            'backup.id': 'Backup ID',
+            'backup.droplet_id': 'Droplet ID',
+            'backup.created_at': 'Created At',
+            'backup.size_gigabytes': 'Size (GB)',
+            'backup.distribution': 'Distribution',
+            'backup.slug': 'Image Slug'
+        },
+        'reserved_ip': {
+            'reserved_ip.ip': 'IP Address',
+            'reserved_ip.ip_version': 'IP Version',
+            'reserved_ip.region.slug': 'Region',
+            'reserved_ip.region_slug': 'Region',
+            'reserved_ip.droplet.id': 'Attached Droplet',
+            'reserved_ip.locked': 'Locked Status',
+            'reserved_ip.project_id': 'Project ID'
+        },
+        'firewall': {
+            'firewall.name': 'Name',
+            'firewall.status': 'Status',
+            'firewall.droplet_ids': 'Attached Droplets',
+            'firewall.inbound_rules': 'Inbound Rules',
+            'firewall.outbound_rules': 'Outbound Rules',
+            'firewall.pending_changes': 'Pending Changes',
+            'firewall.tags': 'Tags'
+        },
+        'app_platform': {
+            'app.id': 'App ID',
+            'app.spec.name': 'Name',
+            'app.spec.region': 'Region',
+            'app.active_deployment.phase': 'Active Deployment',
+            'app.in_progress_deployment.phase': 'In-progress Deployment',
+            'app.live_url': 'Live URL',
+            'app.tier_slug': 'Tier',
+            'app.default_ingress': 'Default Ingress'
+        },
+        'object_storage': {
+            'bucket.name': 'Name',
+            'bucket.region': 'Region'
+        },
+        'container_registry': {
+            'registry.name': 'Name',
+            'registry.region': 'Region',
+            'registry.endpoint': 'Endpoint',
+            'registry.storage_usage_bytes': 'Storage Usage (bytes)',
+            'registry.subscription': 'Subscription'
+        },
+        'kubernetes_cluster': {
+            'kubernetes_cluster.name': 'Name',
+            'kubernetes_cluster.status.state': 'Status',
+            'kubernetes_cluster.region.slug': 'Region',
+            'kubernetes_cluster.version': 'Version',
+            'kubernetes_cluster.node_pools.[].name': 'Node Pools',
+            'kubernetes_cluster.node_pools.[].count': 'Node Counts',
+            'kubernetes_cluster.ha': 'High Availability',
+            'kubernetes_cluster.auto_upgrade': 'Automatic Upgrades',
+            'kubernetes_cluster.registry_enabled': 'Container Registry',
+            'kubernetes_cluster.tags': 'Tags',
+        },
+        'kubernetes_node_pool': {
+            'kubernetes_node_pool.name': 'Name',
+            'kubernetes_node_pool.size': 'Droplet Size',
+            'kubernetes_node_pool.count': 'Node Count',
+            'kubernetes_node_pool.auto_scale': 'Autoscaling',
+            'kubernetes_node_pool.min_nodes': 'Minimum Nodes',
+            'kubernetes_node_pool.max_nodes': 'Maximum Nodes',
+            'kubernetes_node_pool.nodes.[].status.state': 'Node States',
+            'kubernetes_node_pool.tags': 'Tags',
+            'kubernetes_node_pool.labels': 'Labels',
+            'kubernetes_node_pool.taints': 'Taints',
+        },
+        'vpc': {
+            'vpc.name': 'Name',
+            'vpc.region.slug': 'Region',
+            'vpc.ip_range': 'IP Range',
+            'vpc.default': 'Default VPC',
+            'vpc.description': 'Description',
+        },
+        'vpc_peering': {
+            'vpc_peering.name': 'Name',
+            'vpc_peering.status': 'Status',
+            'vpc_peering.vpc_ids': 'VPCs',
+        },
+        'nat_gateway': {
+            'vpc_nat_gateway.name': 'Name',
+            'vpc_nat_gateway.state': 'State',
+            'vpc_nat_gateway.region.slug': 'Region',
+            'vpc_nat_gateway.type': 'Type',
+            'vpc_nat_gateway.size': 'Size',
+            'vpc_nat_gateway.vpcs': 'VPCs',
+            'vpc_nat_gateway.egresses.public_gateways': 'Public Gateways',
+        },
+        'domain': {
+            'domain.name': 'Name',
+            'domain.ttl': 'TTL',
+            'domain.zone_file': 'Zone File',
+            'domain.state': 'State',
+            'domain.ip_address': 'IP Address',
+            'domain.public': 'Public',
+        },
+        'dns_record': {
+            'domain_record.type': 'Type',
+            'domain_record.name': 'Name',
+            'domain_record.data': 'Data',
+            'domain_record.ttl': 'TTL',
+            'domain_record.priority': 'Priority',
+            'domain_record.port': 'Port',
+            'domain_record.weight': 'Weight',
+            'domain_record.flags': 'Flags',
+            'domain_record.tag': 'CAA Tag',
+            'domain_record.domain_name': 'Domain',
+        },
+        'cdn_endpoint': {
+            'endpoint.origin': 'Origin',
+            'endpoint.endpoint': 'CDN URL',
+            'endpoint.custom_domain': 'Custom Domain',
+            'endpoint.certificate_id': 'Certificate ID',
+            'endpoint.ttl': 'TTL',
+            'endpoint.created_at': 'Created At',
+        },
+        'certificate': {
+            'certificate.name': 'Name',
+            'certificate.type': 'Type',
+            'certificate.state': 'State',
+            'certificate.domains': 'Domains',
+            'certificate.not_after': 'Expiration',
+            'certificate.expires_at': 'Expiration',
+            'certificate.expiration': 'Expiration',
+            'certificate.sha1_fingerprint': 'SHA-1 Fingerprint',
         }
     },
     'vultr': {
@@ -109,6 +285,84 @@ PROVIDER_METADATA_FIELDS = {
             'block.region': 'Region',
             'block.attached_to_instance': 'Attached To',
             'block.mount_id': 'Mount ID'
+        },
+        'database': {
+            'database.label': 'Name',
+            'database.status': 'Status',
+            'database.engine': 'Engine',
+            'database.version': 'Version',
+            'database.region': 'Region',
+            'database.plan': 'Plan',
+            'database.latest_backup': 'Latest Backup',
+        },
+        'vultr_bare_metal': {
+            'bare_metal.label': 'Name',
+            'bare_metal.status': 'Status',
+            'bare_metal.region': 'Region',
+            'bare_metal.plan': 'Plan',
+            'bare_metal.main_ip': 'Main IP',
+        },
+        'vultr_compute_plan': {
+            'plan.name': 'Name',
+            'plan.description': 'Description',
+            'plan.vcpus': 'vCPUs',
+            'plan.ram': 'Memory',
+            'plan.monthly_cost': 'Monthly Cost',
+        },
+        'vultr_block_snapshot': {
+            'snapshot.description': 'Description',
+            'snapshot.date_created': 'Created At',
+            'snapshot.size': 'Size',
+            'snapshot.status': 'Status',
+        },
+        'vultr_firewall_rule': {
+            'firewall_rule.action': 'Action',
+            'firewall_rule.protocol': 'Protocol',
+            'firewall_rule.port': 'Port',
+            'firewall_rule.source': 'Source',
+        },
+        'vultr_storage_cluster': {
+            'storage_cluster.status': 'Status',
+            'storage_cluster.region': 'Region',
+            'storage_cluster.capacity': 'Capacity',
+        },
+        'vultr_storage_tier': {
+            'storage_tier.status': 'Status',
+            'storage_tier.region': 'Region',
+            'storage_tier.capacity': 'Capacity',
+        },
+        'vultr_storage_gateway': {
+            'storage_gateway.status': 'Status',
+            'storage_gateway.vpc_id': 'VPC',
+            'storage_gateway.region': 'Region',
+        },
+        'vultr_registry_repository': {
+            'repository.name': 'Repository',
+            'repository.artifact_count': 'Artifacts',
+            'repository.pull_count': 'Pulls',
+        },
+        'vultr_registry_artifact': {
+            'artifact.tag': 'Tag',
+            'artifact.digest': 'Digest',
+            'artifact.size': 'Size',
+        },
+        'vultr_inference': {
+            'inference.status': 'Status',
+            'inference.model': 'Model',
+            'inference.region': 'Region',
+        },
+        'vultr_plan': {
+            'plan.name': 'Name',
+            'plan.description': 'Description',
+            'plan.vcpus': 'vCPUs',
+            'plan.ram': 'Memory',
+            'plan.monthly_cost': 'Monthly Cost',
+        },
+        'vultr_region': {
+            'region.id': 'ID',
+            'region.city': 'City',
+            'region.country': 'Country',
+            'region.status': 'Status',
         }
     },
     'hetzner': {
@@ -129,7 +383,127 @@ PROVIDER_METADATA_FIELDS = {
             'volume.server': 'Attached Server',
             'volume.linux_device': 'Device Path',
             'volume.protection.delete': 'Delete Protection'
-        }
+        },
+        'primary_ip': {
+            'primary_ip.ip': 'IP Address',
+            'primary_ip.type': 'Address Family',
+            'primary_ip.blocked': 'Blocked',
+            'primary_ip.assignee_id': 'Assignee',
+            'primary_ip.protection': 'Protection',
+        },
+        'floating_ip': {
+            'floating_ip.ip': 'IP Address',
+            'floating_ip.type': 'Address Family',
+            'floating_ip.blocked': 'Blocked',
+            'floating_ip.assignee_id': 'Assignee',
+            'floating_ip.protection': 'Protection',
+        },
+        'network': {
+            'network.name': 'Name',
+            'network.ip_range': 'IP Range',
+            'network.subnets': 'Subnets',
+            'network.routes': 'Routes',
+            'network.attached_servers': 'Attached Servers',
+            'network.protection': 'Protection',
+        },
+        'firewall': {
+            'firewall.name': 'Name',
+            'firewall.rules': 'Rules',
+            'firewall.applied_to': 'Applied Resources',
+            'firewall.protection': 'Protection',
+            'firewall.labels': 'Labels',
+        },
+        'load_balancer': {
+            'load_balancer.name': 'Name',
+            'load_balancer.status': 'Status',
+            'load_balancer.targets': 'Targets',
+            'load_balancer.services': 'Services',
+            'load_balancer.protection': 'Protection',
+        },
+        'placement_group': {
+            'placement_group.name': 'Name',
+            'placement_group.type': 'Type',
+            'placement_group.servers': 'Servers',
+            'placement_group.protection': 'Protection',
+        },
+        'image': {
+            'image.name': 'Name',
+            'image.type': 'Type',
+            'image.status': 'Status',
+            'image.description': 'Description',
+            'image.os_flavor': 'OS Flavor',
+            'image.protection': 'Protection',
+        },
+        'certificate': {
+            'certificate.name': 'Name',
+            'certificate.type': 'Type',
+            'certificate.status': 'Status',
+            'certificate.domains': 'Domains',
+            'certificate.not_valid_after': 'Expiration',
+            'certificate.expires_at': 'Expiration',
+            'certificate.sha1_fingerprint': 'SHA-1 Fingerprint',
+        },
+        'location': {
+            'location.name': 'Name',
+            'location.city': 'City',
+            'location.country': 'Country',
+            'location.latitude': 'Latitude',
+            'location.longitude': 'Longitude',
+        },
+        'datacenter': {
+            'datacenter.name': 'Name',
+            'datacenter.description': 'Description',
+            'datacenter.location.name': 'Location',
+            'datacenter.server_types': 'Server Types',
+        },
+        'server_type': {
+            'server_type.name': 'Name',
+            'server_type.description': 'Description',
+            'server_type.cores': 'CPU Cores',
+            'server_type.memory': 'Memory',
+            'server_type.disk': 'Disk',
+        },
+        'load_balancer_type': {
+            'load_balancer_type.name': 'Name',
+            'load_balancer_type.description': 'Description',
+            'load_balancer_type.max_connections': 'Maximum Connections',
+            'load_balancer_type.max_services': 'Maximum Services',
+        },
+        'iso': {
+            'iso.name': 'Name',
+            'iso.description': 'Description',
+            'iso.type': 'Type',
+            'iso.deprecated': 'Deprecated',
+        },
+        'ssh_key': {
+            'ssh_key.name': 'Name',
+            'ssh_key.fingerprint': 'Fingerprint',
+            'ssh_key.labels': 'Labels',
+        },
+        'zone': {
+            'zone.name': 'Name',
+            'zone.mode': 'Mode',
+            'zone.ttl': 'TTL',
+            'zone.nameservers': 'Nameservers',
+            'zone.primary_nameservers': 'Primary Nameservers',
+        },
+        'rrset': {
+            'rrset.name': 'Name',
+            'rrset.type': 'Type',
+            'rrset.ttl': 'TTL',
+            'rrset.records': 'Records',
+        },
+        'object_storage': {
+            'bucket.name': 'Name',
+            'bucket.region': 'Region',
+            'bucket.CreationDate': 'Created At',
+        },
+        'action': {
+            'action.status': 'Status',
+            'action.progress': 'Progress',
+            'action.command': 'Command',
+            'action.error': 'Error',
+        },
     },
     'aws': {
         'server': {
@@ -482,6 +856,158 @@ PROVIDER_METADATA_FIELDS = {
         }
     }
 }
+
+# Lightsail resources use the same AWS credential context but expose a
+# separate control-plane payload. Keep their lifecycle, configuration,
+# firewall, tag, backup, and metric changes visible to the monitoring engine.
+PROVIDER_METADATA_FIELDS['aws'].update({
+    'lightsail_instance': {
+        'lightsail_instance.name': 'Name',
+        'lightsail_instance.state': 'State',
+        'lightsail_instance.publicIpAddress': 'Public IP',
+        'lightsail_instance.privateIpAddress': 'Private IP',
+        'lightsail_instance.blueprintName': 'Blueprint',
+        'lightsail_instance.bundleId': 'Bundle',
+        'lightsail_instance.tags': 'Tags',
+        'lightsailDetails.portStates': 'Firewall Ports',
+        'lightsailDetails.autoSnapshots': 'Auto Snapshots',
+        'lightsailDetails.metric.metricData': 'CPU Utilization',
+    },
+    'lightsail_disk': {
+        'lightsail_disk.name': 'Name',
+        'lightsail_disk.state': 'State',
+        'lightsail_disk.sizeInGb': 'Size (GB)',
+        'lightsail_disk.attachedTo': 'Attached Instance',
+        'lightsail_disk.tags': 'Tags',
+        'lightsailDetails.autoSnapshots': 'Auto Snapshots',
+    },
+    'lightsail_instance_snapshot': {
+        'lightsail_instance_snapshot.name': 'Name',
+        'lightsail_instance_snapshot.state': 'State',
+        'lightsail_instance_snapshot.fromInstanceName': 'Source Instance',
+        'lightsail_instance_snapshot.sizeInGb': 'Size (GB)',
+        'lightsail_instance_snapshot.tags': 'Tags',
+    },
+    'lightsail_disk_snapshot': {
+        'lightsail_disk_snapshot.name': 'Name',
+        'lightsail_disk_snapshot.state': 'State',
+        'lightsail_disk_snapshot.fromDiskName': 'Source Disk',
+        'lightsail_disk_snapshot.sizeInGb': 'Size (GB)',
+        'lightsail_disk_snapshot.tags': 'Tags',
+    },
+    'lightsail_static_ip': {
+        'lightsail_static_ip.name': 'Name',
+        'lightsail_static_ip.ipAddress': 'IP Address',
+        'lightsail_static_ip.attachedTo': 'Attached Instance',
+        'lightsail_static_ip.tags': 'Tags',
+    },
+    'lightsail_database': {
+        'lightsail_database.name': 'Name',
+        'lightsail_database.state': 'State',
+        'lightsail_database.engine': 'Engine',
+        'lightsail_database.engineVersion': 'Engine Version',
+        'lightsail_database.masterDatabaseName': 'Database Name',
+        'lightsail_database.tags': 'Tags',
+        'lightsailDetails.metric.metricData': 'CPU Utilization',
+    },
+    'lightsail_database_snapshot': {
+        'lightsail_database_snapshot.name': 'Name',
+        'lightsail_database_snapshot.state': 'State',
+        'lightsail_database_snapshot.fromRelationalDatabaseName': 'Source Database',
+        'lightsail_database_snapshot.engine': 'Engine',
+        'lightsail_database_snapshot.tags': 'Tags',
+    },
+    'lightsail_load_balancer': {
+        'lightsail_load_balancer.name': 'Name',
+        'lightsail_load_balancer.state': 'State',
+        'lightsail_load_balancer.publicPorts': 'Public Ports',
+        'lightsail_load_balancer.instanceHealthSummary': 'Instance Health',
+        'lightsail_load_balancer.tags': 'Tags',
+        'lightsailDetails.tlsCertificates': 'TLS Certificates',
+        'lightsailDetails.metric.metricData': 'Request Count',
+    },
+    'lightsail_certificate': {
+        'lightsail_certificate.certificateName': 'Name',
+        'lightsail_certificate.certificateDetail.status': 'Status',
+        'lightsail_certificate.domainName': 'Domain Name',
+        'lightsail_certificate.certificateDetail.subjectAlternativeNames': 'Subject Alternative Names',
+        'lightsail_certificate.tags': 'Tags',
+    },
+    'lightsail_bucket': {
+        'lightsail_bucket.name': 'Name',
+        'lightsail_bucket.state': 'State',
+        'lightsail_bucket.bundleId': 'Storage Bundle',
+        'lightsail_bucket.objectVersioning': 'Object Versioning',
+        'lightsail_bucket.cors': 'CORS Rules',
+        'lightsail_bucket.resourcesReceivingAccess': 'Connected Resources',
+        'lightsail_bucket.tags': 'Tags',
+        'lightsailDetails.metric.metricData': 'Object Count',
+    },
+    'lightsail_distribution': {
+        'lightsail_distribution.name': 'Name',
+        'lightsail_distribution.status': 'Status',
+        'lightsail_distribution.isEnabled': 'Enabled',
+        'lightsail_distribution.origin': 'Origin',
+        'lightsail_distribution.tags': 'Tags',
+        'lightsailDetails.metric.metricData': 'Requests',
+    },
+    'lightsail_domain': {
+        'lightsail_domain.name': 'Domain Name',
+        'lightsail_domain.domainEntries': 'DNS Records',
+        'lightsail_domain.tags': 'Tags',
+    },
+    'lightsail_dns_record': {
+        'lightsail_dns_record.name': 'Record Name',
+        'lightsail_dns_record.type': 'Record Type',
+        'lightsail_dns_record.target': 'Target',
+        'lightsail_dns_record.ttl': 'TTL',
+        'lightsail_dns_record.isAlias': 'Alias Record',
+    },
+    'lightsail_container_service': {
+        'lightsail_container_service.containerServiceName': 'Service Name',
+        'lightsail_container_service.state': 'State',
+        'lightsail_container_service.power': 'Power',
+        'lightsail_container_service.scale': 'Scale',
+        'lightsail_container_service.currentDeployment': 'Current Deployment',
+        'lightsail_container_service.tags': 'Tags',
+        'lightsailDetails.metric.metricData': 'CPU Utilization',
+        'lightsailDetails.containerLogs': 'Container Logs',
+    },
+    'lightsail_container_deployment': {
+        'lightsail_container_deployment.version': 'Version',
+        'lightsail_container_deployment.state': 'State',
+        'lightsail_container_deployment.containers': 'Containers',
+        'lightsail_container_deployment.createdAt': 'Created At',
+    },
+    'lightsail_container_image': {
+        'lightsail_container_image.image': 'Image',
+        'lightsail_container_image.digest': 'Digest',
+        'lightsail_container_image.createdAt': 'Created At',
+    },
+    'lightsail_alarm': {
+        'lightsail_alarm.name': 'Name',
+        'lightsail_alarm.state': 'State',
+        'lightsail_alarm.resourceName': 'Monitored Resource',
+        'lightsail_alarm.metricName': 'Metric',
+        'lightsail_alarm.threshold': 'Threshold',
+        'lightsail_alarm.tags': 'Tags',
+    },
+    'lightsail_operation': {
+        'lightsail_operation.id': 'Operation ID',
+        'lightsail_operation.resourceName': 'Resource',
+        'lightsail_operation.resourceType': 'Resource Type',
+        'lightsail_operation.status': 'Status',
+        'lightsail_operation.errorCode': 'Error Code',
+        'lightsail_operation.createdAt': 'Created At',
+    },
+    'lightsail_auto_snapshot': {
+        'lightsail_auto_snapshot.date': 'Snapshot Date',
+        'lightsail_auto_snapshot.status': 'Status',
+        'lightsail_auto_snapshot.fromInstanceName': 'Source Instance',
+        'lightsail_auto_snapshot.fromDiskName': 'Source Disk',
+        'lightsail_auto_snapshot.sizeInGb': 'Size (GB)',
+    },
+})
 
 
 def filter_metadata(metadata, provider, asset_type):

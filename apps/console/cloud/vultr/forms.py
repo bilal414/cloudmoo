@@ -17,7 +17,7 @@ class VultrConnectForm(forms.Form):
     )
 
     access_token = forms.CharField(
-        widget=forms.TextInput(attrs={
+        widget=forms.PasswordInput(attrs={
             'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
             'placeholder': 'Enter your Vultr access token'
         }),

@@ -257,9 +257,16 @@ def run_status_check(asset):
     # Get current status from provider
     try:
         check_status_function = get_check_function(provider, asset_type)
+        # Most providers use the control-plane token directly. Assets such
+        # as DigitalOcean Spaces can require a different, provider-specific
+        # credential set, exposed by the asset without changing the common
+        # check function contract.
+        credentials = getattr(asset, 'monitoring_credentials', None)
+        if credentials is None:
+            credentials = asset.owner.access_token
         current_status, current_metadata = check_status_function(
             asset.unique_id,
-            asset.owner.access_token,
+            credentials,
         )
     except Exception as error:
         # A provider adapter must normalize failures, but this guard ensures

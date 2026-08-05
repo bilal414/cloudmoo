@@ -180,13 +180,15 @@
         </div>
     </div>
 
-    <!-- AWS Asset Categories (for AWS clouds) -->
-    {% if is_aws %}
+    <!-- Provider Asset Categories -->
+    {% if is_aws or is_digitalocean or is_hetzner %}
     <div class="bg-white shadow rounded-lg mb-8" x-data="{ activeTab: 'overview' }">
         <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
-            <h3 class="text-lg leading-6 font-medium text-gray-900">AWS Services Overview</h3>
+            <h3 class="text-lg leading-6 font-medium text-gray-900">
+                {% if is_aws %}AWS{% elif is_digitalocean %}DigitalOcean{% else %}Hetzner{% endif %} Services Overview
+            </h3>
             <p class="mt-1 max-w-2xl text-sm text-gray-500">
-                Detailed breakdown of your AWS assets organized by service category.
+                Detailed breakdown of your {% if is_aws %}AWS{% elif is_digitalocean %}DigitalOcean{% else %}Hetzner{% endif %} assets organized by service category.
             </p>
         </div>
         

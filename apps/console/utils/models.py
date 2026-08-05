@@ -65,11 +65,207 @@ class UtilAsset(TimeStampedModel):
         S3_BUCKET = "s3_bucket", "S3 Bucket"
         ACM_CERTIFICATE = "acm_certificate", "ACM Certificate"
         SNAPSHOT = "snapshot", "Snapshot"
+        BACKUP = "backup", "Backup"
         ELASTIC_IP = "elastic_ip", "Elastic IP"
+        RESERVED_IP = "reserved_ip", "Reserved IP"
         LOAD_BALANCER = "load_balancer", "Load Balancer"
         SECURITY_GROUP = "security_group", "Security Group"
+        FIREWALL = "firewall", "Firewall"
+        APP_PLATFORM = "app_platform", "App Platform App"
+        OBJECT_STORAGE = "object_storage", "Object Storage"
+        CONTAINER_REGISTRY = "container_registry", "Container Registry"
         ECS_SERVICE = "ecs_service", "ECS Service"
         ECS_TASK = "ecs_task", "ECS Task"
+        KUBERNETES_CLUSTER = "kubernetes_cluster", "Kubernetes Cluster"
+        KUBERNETES_NODE_POOL = "kubernetes_node_pool", "Kubernetes Node Pool"
+
+        # Vultr read-only inventory families that do not have a precise
+        # equivalent in the legacy provider-neutral set above.
+        VULTR_BARE_METAL = "vultr_bare_metal", "Vultr Bare Metal"
+        VULTR_BLOCK_SNAPSHOT = "vultr_block_snapshot", "Vultr Block Snapshot"
+        VULTR_VFS = "vultr_vfs", "Vultr Virtual File System"
+        VULTR_STORAGE_GATEWAY = "vultr_storage_gateway", "Vultr Storage Gateway"
+        VULTR_BANDWIDTH_METRIC = "vultr_bandwidth_metric", "Vultr Bandwidth Metric"
+        VULTR_REGISTRY_REPOSITORY = "vultr_registry_repository", "Vultr Registry Repository"
+        VULTR_REGISTRY_ARTIFACT = "vultr_registry_artifact", "Vultr Registry Artifact"
+        VULTR_INFERENCE = "vultr_inference", "Vultr Inference Endpoint"
+        VULTR_FIREWALL_RULE = "vultr_firewall_rule", "Vultr Firewall Rule"
+        VULTR_STORAGE_CLUSTER = "vultr_storage_cluster", "Vultr Storage Cluster"
+        VULTR_STORAGE_TIER = "vultr_storage_tier", "Vultr Storage Tier"
+        VULTR_PLAN = "vultr_plan", "Vultr Plan"
+        VULTR_REGION = "vultr_region", "Vultr Region"
+        VULTR_COMPUTE_PLAN = "vultr_compute_plan", "Vultr Compute Plan"
+        VULTR_ACCOUNT_LOG = "vultr_account_log", "Vultr Account Log"
+        VULTR_STATUS_INCIDENT = "vultr_status_incident", "Vultr Status Incident"
+
+        # Hetzner Cloud inventory families.  These names are provider-neutral
+        # where the same concept is useful across providers, while the
+        # provider-specific adapter remains responsible for semantics.
+        PRIMARY_IP = "primary_ip", "Primary IP"
+        FLOATING_IP = "floating_ip", "Floating IP"
+        NETWORK = "network", "Network"
+        PLACEMENT_GROUP = "placement_group", "Placement Group"
+        IMAGE = "image", "Image"
+        LOCATION = "location", "Location"
+        DATACENTER = "datacenter", "Datacenter"
+        SERVER_TYPE = "server_type", "Server Type"
+        ISO = "iso", "ISO"
+        SSH_KEY = "ssh_key", "SSH Key"
+        LOAD_BALANCER_TYPE = "load_balancer_type", "Load Balancer Type"
+        ZONE = "zone", "DNS Zone"
+        RRSET = "rrset", "DNS RRSet"
+        ACTION = "action", "Provider Action"
+
+        AWS_CLOUDWATCH_ALARM = "aws_cloudwatch_alarm", "AWS CloudWatch Alarm"
+        AWS_CLOUDWATCH_METRIC = "aws_cloudwatch_metric", "AWS CloudWatch Metric"
+        AWS_LOG_GROUP = "aws_log_group", "AWS Log Group"
+
+        AWS_ECR_REPOSITORY = "aws_ecr_repository", "AWS ECR Repository"
+        AWS_ECR_IMAGE = "aws_ecr_image", "AWS ECR Image"
+        AWS_ECS_TASK_DEFINITION = "aws_ecs_task_definition", "AWS ECS Task Definition"
+        AWS_ECS_DEPLOYMENT = "aws_ecs_deployment", "AWS ECS Deployment"
+        AWS_EKS_CLUSTER = "aws_eks_cluster", "AWS EKS Cluster"
+        AWS_EKS_NODE_GROUP = "aws_eks_node_group", "AWS EKS Node Group"
+        AWS_EKS_ADDON = "aws_eks_addon", "AWS EKS Add-on"
+        AWS_EKS_FARGATE_PROFILE = "aws_eks_fargate_profile", "AWS EKS Fargate Profile"
+        AWS_APPRUNNER_SERVICE = "aws_apprunner_service", "AWS App Runner Service"
+        AWS_APPRUNNER_DEPLOYMENT = "aws_apprunner_deployment", "AWS App Runner Deployment"
+
+        AWS_ROUTE53_ZONE = "aws_route53_zone", "AWS Route 53 Zone"
+        AWS_ROUTE53_RECORD = "aws_route53_record", "AWS Route 53 Record"
+        AWS_CLOUDFRONT_DISTRIBUTION = "aws_cloudfront_distribution", "AWS CloudFront Distribution"
+        AWS_CLOUDFRONT_ORIGIN_ACCESS_CONTROL = (
+            "aws_cloudfront_origin_access_control",
+            "AWS CloudFront Origin Access Control",
+        )
+        AWS_WAF_WEB_ACL = "aws_waf_web_acl", "AWS WAF Web ACL"
+        AWS_GLOBAL_ACCELERATOR = "aws_global_accelerator", "AWS Global Accelerator"
+
+        AWS_BACKUP_VAULT = "aws_backup_vault", "AWS Backup Vault"
+        AWS_BACKUP_PLAN = "aws_backup_plan", "AWS Backup Plan"
+        AWS_BACKUP_RECOVERY_POINT = "aws_backup_recovery_point", "AWS Backup Recovery Point"
+        AWS_BACKUP_JOB = "aws_backup_job", "AWS Backup Job"
+        AWS_BACKUP_COPY_JOB = "aws_backup_copy_job", "AWS Backup Copy Job"
+
+        AWS_RDS_CLUSTER = "aws_rds_cluster", "AWS RDS Cluster"
+        AWS_ELASTICACHE_CLUSTER = "aws_elasticache_cluster", "AWS ElastiCache Cluster"
+        AWS_ELASTICACHE_REPLICATION_GROUP = (
+            "aws_elasticache_replication_group",
+            "AWS ElastiCache Replication Group",
+        )
+        AWS_ELASTICACHE_SERVERLESS_CACHE = (
+            "aws_elasticache_serverless_cache",
+            "AWS ElastiCache Serverless Cache",
+        )
+        AWS_MEMORYDB_CLUSTER = "aws_memorydb_cluster", "AWS MemoryDB Cluster"
+        AWS_OPENSEARCH_DOMAIN = "aws_opensearch_domain", "AWS OpenSearch Domain"
+        AWS_EFS_FILE_SYSTEM = "aws_efs_file_system", "AWS EFS File System"
+        AWS_FSX_FILE_SYSTEM = "aws_fsx_file_system", "AWS FSx File System"
+
+        AWS_APIGATEWAY_REST_API = "aws_apigateway_rest_api", "AWS API Gateway REST API"
+        AWS_APIGATEWAY_V2_API = "aws_apigateway_v2_api", "AWS API Gateway v2 API"
+        AWS_EVENTBRIDGE_BUS = "aws_eventbridge_bus", "AWS EventBridge Bus"
+        AWS_EVENTBRIDGE_RULE = "aws_eventbridge_rule", "AWS EventBridge Rule"
+        AWS_EVENTBRIDGE_SCHEDULE = "aws_eventbridge_schedule", "AWS EventBridge Schedule"
+        AWS_EVENTBRIDGE_PIPE = "aws_eventbridge_pipe", "AWS EventBridge Pipe"
+        AWS_SNS_TOPIC = "aws_sns_topic", "AWS SNS Topic"
+        AWS_SQS_QUEUE = "aws_sqs_queue", "AWS SQS Queue"
+        AWS_STEPFUNCTIONS_STATE_MACHINE = (
+            "aws_stepfunctions_state_machine",
+            "AWS Step Functions State Machine",
+        )
+        AWS_ATHENA_WORKGROUP = "aws_athena_workgroup", "AWS Athena Workgroup"
+        AWS_ATHENA_DATA_CATALOG = "aws_athena_data_catalog", "AWS Athena Data Catalog"
+        AWS_CLOUDFORMATION_STACK = "aws_cloudformation_stack", "AWS CloudFormation Stack"
+
+        AWS_ELASTIC_BEANSTALK_APPLICATION = (
+            "aws_elastic_beanstalk_application",
+            "AWS Elastic Beanstalk Application",
+        )
+        AWS_ELASTIC_BEANSTALK_ENVIRONMENT = (
+            "aws_elastic_beanstalk_environment",
+            "AWS Elastic Beanstalk Environment",
+        )
+        AWS_CODEBUILD_PROJECT = "aws_codebuild_project", "AWS CodeBuild Project"
+        AWS_CODEBUILD_BUILD = "aws_codebuild_build", "AWS CodeBuild Build"
+        AWS_CODEPIPELINE_PIPELINE = "aws_codepipeline_pipeline", "AWS CodePipeline Pipeline"
+        AWS_CODEPIPELINE_EXECUTION = "aws_codepipeline_execution", "AWS CodePipeline Execution"
+
+        AWS_IAM_USER = "aws_iam_user", "AWS IAM User"
+        AWS_IAM_ROLE = "aws_iam_role", "AWS IAM Role"
+        AWS_IAM_POLICY = "aws_iam_policy", "AWS IAM Policy"
+        AWS_KMS_KEY = "aws_kms_key", "AWS KMS Key"
+        AWS_KMS_ALIAS = "aws_kms_alias", "AWS KMS Alias"
+        AWS_CLOUDTRAIL_TRAIL = "aws_cloudtrail_trail", "AWS CloudTrail Trail"
+        AWS_CONFIG_RULE = "aws_config_rule", "AWS Config Rule"
+        AWS_CONFIG_RECORDER = "aws_config_recorder", "AWS Config Recorder"
+        AWS_GUARDDUTY_DETECTOR = "aws_guardduty_detector", "AWS GuardDuty Detector"
+        AWS_SECURITY_HUB = "aws_security_hub", "AWS Security Hub"
+        AWS_INSPECTOR = "aws_inspector", "AWS Inspector"
+        AWS_MACIE = "aws_macie", "AWS Macie"
+        AWS_FIREWALL_MANAGER_POLICY = (
+            "aws_firewall_manager_policy",
+            "AWS Firewall Manager Policy",
+        )
+
+        AWS_SECRETS_MANAGER_SECRET = (
+            "aws_secrets_manager_secret",
+            "AWS Secrets Manager Secret",
+        )
+        AWS_SSM_PARAMETER = "aws_ssm_parameter", "AWS SSM Parameter"
+
+        AWS_HEALTH_EVENT = "aws_health_event", "AWS Health Event"
+        AWS_TRUSTED_ADVISOR_CHECK = (
+            "aws_trusted_advisor_check",
+            "AWS Trusted Advisor Check",
+        )
+        AWS_COST_EXPLORER_SIGNAL = "aws_cost_explorer_signal", "AWS Cost Explorer Signal"
+        AWS_COST_ANOMALY_MONITOR = "aws_cost_anomaly_monitor", "AWS Cost Anomaly Monitor"
+        AWS_COST_ANOMALY_SUBSCRIPTION = (
+            "aws_cost_anomaly_subscription",
+            "AWS Cost Anomaly Subscription",
+        )
+        AWS_COST_ANOMALY = "aws_cost_anomaly", "AWS Cost Anomaly"
+
+        VPC = "vpc", "VPC"
+        SUBNET = "subnet", "Subnet"
+        ROUTE_TABLE = "route_table", "Route Table"
+        INTERNET_GATEWAY = "internet_gateway", "Internet Gateway"
+        VPC_PEERING = "vpc_peering", "VPC Peering"
+        NAT_GATEWAY = "nat_gateway", "NAT Gateway"
+        NETWORK_ACL = "network_acl", "Network ACL"
+        NETWORK_INTERFACE = "network_interface", "Network Interface"
+        TRANSIT_GATEWAY_ATTACHMENT = "transit_gateway_attachment", "Transit Gateway Attachment"
+        VPN_CONNECTION = "vpn_connection", "VPN Connection"
+        FLOW_LOG = "flow_log", "Flow Log"
+        AUTO_SCALING_GROUP = "auto_scaling_group", "Auto Scaling Group"
+        LAUNCH_TEMPLATE = "launch_template", "Launch Template"
+        AMI = "ami", "AMI"
+        EBS_ATTACHMENT = "ebs_attachment", "EBS Attachment"
+
+        DOMAIN = "domain", "Domain"
+        DNS_RECORD = "dns_record", "DNS Record"
+        CDN_ENDPOINT = "cdn_endpoint", "CDN Endpoint"
+        CERTIFICATE = "certificate", "Certificate"
+        LIGHTSAIL_INSTANCE = "lightsail_instance", "Lightsail Instance"
+        LIGHTSAIL_DISK = "lightsail_disk", "Lightsail Disk"
+        LIGHTSAIL_INSTANCE_SNAPSHOT = "lightsail_instance_snapshot", "Lightsail Instance Snapshot"
+        LIGHTSAIL_DISK_SNAPSHOT = "lightsail_disk_snapshot", "Lightsail Disk Snapshot"
+        LIGHTSAIL_STATIC_IP = "lightsail_static_ip", "Lightsail Static IP"
+        LIGHTSAIL_DATABASE = "lightsail_database", "Lightsail Database"
+        LIGHTSAIL_DATABASE_SNAPSHOT = "lightsail_database_snapshot", "Lightsail Database Snapshot"
+        LIGHTSAIL_LOAD_BALANCER = "lightsail_load_balancer", "Lightsail Load Balancer"
+        LIGHTSAIL_CERTIFICATE = "lightsail_certificate", "Lightsail Certificate"
+        LIGHTSAIL_BUCKET = "lightsail_bucket", "Lightsail Bucket"
+        LIGHTSAIL_DISTRIBUTION = "lightsail_distribution", "Lightsail Distribution"
+        LIGHTSAIL_DOMAIN = "lightsail_domain", "Lightsail DNS Zone"
+        LIGHTSAIL_DNS_RECORD = "lightsail_dns_record", "Lightsail DNS Record"
+        LIGHTSAIL_CONTAINER_SERVICE = "lightsail_container_service", "Lightsail Container Service"
+        LIGHTSAIL_CONTAINER_DEPLOYMENT = "lightsail_container_deployment", "Lightsail Container Deployment"
+        LIGHTSAIL_CONTAINER_IMAGE = "lightsail_container_image", "Lightsail Container Image"
+        LIGHTSAIL_ALARM = "lightsail_alarm", "Lightsail Alarm"
+        LIGHTSAIL_OPERATION = "lightsail_operation", "Lightsail Operation"
+        LIGHTSAIL_AUTO_SNAPSHOT = "lightsail_auto_snapshot", "Lightsail Auto Snapshot"
 
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     unique_id = models.CharField(max_length=100)
@@ -291,7 +487,104 @@ class UtilAsset(TimeStampedModel):
 
         super().save(*args, **kwargs)
 
-        if is_new and self.type in [self.Type.SERVER, self.Type.VOLUME, self.Type.DATABASE, self.Type.RDS_DATABASE, self.Type.LAMBDA, self.Type.DYNAMODB, self.Type.S3_BUCKET, self.Type.ACM_CERTIFICATE, self.Type.SNAPSHOT, self.Type.ELASTIC_IP, self.Type.LOAD_BALANCER, self.Type.SECURITY_GROUP, self.Type.ECS_SERVICE, self.Type.ECS_TASK]:
+        if is_new and self.type in [
+            self.Type.SERVER,
+            self.Type.VOLUME,
+            self.Type.DATABASE,
+            self.Type.RDS_DATABASE,
+            self.Type.LAMBDA,
+            self.Type.DYNAMODB,
+            self.Type.S3_BUCKET,
+            self.Type.ACM_CERTIFICATE,
+            self.Type.SNAPSHOT,
+            self.Type.BACKUP,
+            self.Type.ELASTIC_IP,
+            self.Type.RESERVED_IP,
+            self.Type.LOAD_BALANCER,
+            self.Type.SECURITY_GROUP,
+            self.Type.FIREWALL,
+            self.Type.APP_PLATFORM,
+            self.Type.OBJECT_STORAGE,
+            self.Type.CONTAINER_REGISTRY,
+            self.Type.ECS_SERVICE,
+            self.Type.ECS_TASK,
+            self.Type.KUBERNETES_CLUSTER,
+            self.Type.KUBERNETES_NODE_POOL,
+            self.Type.PRIMARY_IP,
+            self.Type.FLOATING_IP,
+            self.Type.NETWORK,
+            self.Type.PLACEMENT_GROUP,
+            self.Type.IMAGE,
+            self.Type.LOCATION,
+            self.Type.DATACENTER,
+            self.Type.SERVER_TYPE,
+            self.Type.ISO,
+            self.Type.SSH_KEY,
+            self.Type.LOAD_BALANCER_TYPE,
+            self.Type.ZONE,
+            self.Type.RRSET,
+            self.Type.ACTION,
+            self.Type.AWS_CLOUDWATCH_ALARM,
+            self.Type.AWS_CLOUDWATCH_METRIC,
+            self.Type.AWS_LOG_GROUP,
+            self.Type.AWS_ECR_REPOSITORY,
+            self.Type.AWS_ECR_IMAGE,
+            self.Type.AWS_ECS_TASK_DEFINITION,
+            self.Type.AWS_ECS_DEPLOYMENT,
+            self.Type.AWS_EKS_CLUSTER,
+            self.Type.AWS_EKS_NODE_GROUP,
+            self.Type.AWS_EKS_ADDON,
+            self.Type.AWS_EKS_FARGATE_PROFILE,
+            self.Type.AWS_APPRUNNER_SERVICE,
+            self.Type.AWS_APPRUNNER_DEPLOYMENT,
+            self.Type.AWS_ROUTE53_ZONE,
+            self.Type.AWS_ROUTE53_RECORD,
+            self.Type.AWS_CLOUDFRONT_DISTRIBUTION,
+            self.Type.AWS_CLOUDFRONT_ORIGIN_ACCESS_CONTROL,
+            self.Type.AWS_WAF_WEB_ACL,
+            self.Type.AWS_GLOBAL_ACCELERATOR,
+            self.Type.AWS_BACKUP_VAULT,
+            self.Type.AWS_BACKUP_PLAN,
+            self.Type.AWS_BACKUP_RECOVERY_POINT,
+            self.Type.AWS_BACKUP_JOB,
+            self.Type.AWS_BACKUP_COPY_JOB,
+            self.Type.VPC,
+            self.Type.SUBNET,
+            self.Type.ROUTE_TABLE,
+            self.Type.INTERNET_GATEWAY,
+            self.Type.VPC_PEERING,
+            self.Type.NAT_GATEWAY,
+            self.Type.NETWORK_ACL,
+            self.Type.NETWORK_INTERFACE,
+            self.Type.TRANSIT_GATEWAY_ATTACHMENT,
+            self.Type.VPN_CONNECTION,
+            self.Type.FLOW_LOG,
+            self.Type.AUTO_SCALING_GROUP,
+            self.Type.LAUNCH_TEMPLATE,
+            self.Type.AMI,
+            self.Type.EBS_ATTACHMENT,
+            self.Type.DOMAIN,
+            self.Type.DNS_RECORD,
+            self.Type.CDN_ENDPOINT,
+            self.Type.CERTIFICATE,
+            self.Type.LIGHTSAIL_INSTANCE,
+            self.Type.LIGHTSAIL_DISK,
+            self.Type.LIGHTSAIL_INSTANCE_SNAPSHOT,
+            self.Type.LIGHTSAIL_DISK_SNAPSHOT,
+            self.Type.LIGHTSAIL_STATIC_IP,
+            self.Type.LIGHTSAIL_DATABASE,
+            self.Type.LIGHTSAIL_DATABASE_SNAPSHOT,
+            self.Type.LIGHTSAIL_LOAD_BALANCER,
+            self.Type.LIGHTSAIL_CERTIFICATE,
+            self.Type.LIGHTSAIL_BUCKET,
+            self.Type.LIGHTSAIL_DISTRIBUTION,
+            self.Type.LIGHTSAIL_DOMAIN,
+            self.Type.LIGHTSAIL_DNS_RECORD,
+            self.Type.LIGHTSAIL_CONTAINER_SERVICE,
+            self.Type.LIGHTSAIL_ALARM,
+            self.Type.LIGHTSAIL_OPERATION,
+            self.Type.LIGHTSAIL_AUTO_SNAPSHOT,
+        ]:
             if self.monitoring == self.Monitoring.ACTIVE:
                 try:
                     schedules.asset_schedule_create(self)

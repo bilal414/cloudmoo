@@ -99,6 +99,191 @@ class CoreCloudManager(models.Manager):
 class CoreCloud(TimeStampedModel):
     objects = CoreCloudManager()
 
+    # All provider asset relations are registered here so inventory, cleanup,
+    # scheduling, the asset list, and the dashboard cannot silently diverge
+    # when a provider adds a new resource type.
+    ASSET_RELATIONS = (
+        ('servers', 'server'),
+        ('volumes', 'volume'),
+        # Hetzner Cloud's additional read-only inventory families use the
+        # abstract resource base's class-qualified related names.
+        ('corehetznerprimaryip_assets', 'primary_ip'),
+        ('corehetznerfloatingip_assets', 'floating_ip'),
+        ('corehetznernetwork_assets', 'network'),
+        ('corehetznerfirewall_assets', 'firewall'),
+        ('corehetznerloadbalancer_assets', 'load_balancer'),
+        ('corehetznerplacementgroup_assets', 'placement_group'),
+        ('corehetznerimage_assets', 'image'),
+        ('corehetznercertificate_assets', 'certificate'),
+        ('corehetznerlocation_assets', 'location'),
+        ('corehetznerdatacenter_assets', 'datacenter'),
+        ('corehetznerservertype_assets', 'server_type'),
+        ('corehetzneriso_assets', 'iso'),
+        ('corehetznersshkey_assets', 'ssh_key'),
+        ('corehetznerloadbalancertype_assets', 'load_balancer_type'),
+        ('corehetznerzone_assets', 'zone'),
+        ('corehetznerrset_assets', 'rrset'),
+        ('corehetzneraction_assets', 'action'),
+        ('corehetznerobjectstoragebucket_assets', 'object_storage'),
+        ('databases', 'database'),
+        ('rds_databases', 'rds_database'),
+        ('lambda_functions', 'lambda'),
+        ('dynamodb_tables', 'dynamodb'),
+        ('s3_buckets', 's3_bucket'),
+        ('acm_certificates', 'acm_certificate'),
+        ('snapshots', 'snapshot'),
+        ('backups', 'backup'),
+        ('elastic_ips', 'elastic_ip'),
+        ('reserved_ips', 'reserved_ip'),
+        ('load_balancers', 'load_balancer'),
+        ('security_groups', 'security_group'),
+        ('firewalls', 'firewall'),
+        ('apps', 'app_platform'),
+        ('spaces', 'object_storage'),
+        ('container_registries', 'container_registry'),
+        ('ecs_services', 'ecs_service'),
+        ('ecs_tasks', 'ecs_task'),
+        ('kubernetes_clusters', 'kubernetes_cluster'),
+        ('kubernetes_node_pools', 'kubernetes_node_pool'),
+        ('vpcs', 'vpc'),
+        ('vpc_peerings', 'vpc_peering'),
+        ('vpc_nat_gateways', 'nat_gateway'),
+        ('domains', 'domain'),
+        ('dns_records', 'dns_record'),
+        ('cdn_endpoints', 'cdn_endpoint'),
+        ('certificates', 'certificate'),
+        ('lightsail_instances', 'lightsail_instance'),
+        ('lightsail_disks', 'lightsail_disk'),
+        ('lightsail_instance_snapshots', 'lightsail_instance_snapshot'),
+        ('lightsail_disk_snapshots', 'lightsail_disk_snapshot'),
+        ('lightsail_static_ips', 'lightsail_static_ip'),
+        ('lightsail_databases', 'lightsail_database'),
+        ('lightsail_database_snapshots', 'lightsail_database_snapshot'),
+        ('lightsail_load_balancers', 'lightsail_load_balancer'),
+        ('lightsail_certificates', 'lightsail_certificate'),
+        ('lightsail_buckets', 'lightsail_bucket'),
+        ('lightsail_distributions', 'lightsail_distribution'),
+        ('lightsail_domains', 'lightsail_domain'),
+        ('lightsail_dns_records', 'lightsail_dns_record'),
+        ('lightsail_container_services', 'lightsail_container_service'),
+        ('lightsail_container_deployments', 'lightsail_container_deployment'),
+        ('lightsail_container_images', 'lightsail_container_image'),
+        ('lightsail_alarms', 'lightsail_alarm'),
+        ('lightsail_operations', 'lightsail_operation'),
+        ('lightsail_auto_snapshots', 'lightsail_auto_snapshot'),
+
+        # AWS Priority 0 networking/EC2 dependencies.  These models use the
+        # abstract base's ``%(class)s_assets`` related-name pattern, so the
+        # resolved Django accessors are intentionally class-qualified.
+        ('coreawsvpc_assets', 'vpc'),
+        ('coreawssubnet_assets', 'subnet'),
+        ('coreawsroutetable_assets', 'route_table'),
+        ('coreawsinternetgateway_assets', 'internet_gateway'),
+        ('coreawsnatgateway_assets', 'nat_gateway'),
+        ('coreawsnetworkacl_assets', 'network_acl'),
+        ('coreawsnetworkinterface_assets', 'network_interface'),
+        ('coreawsvpcpeering_assets', 'vpc_peering'),
+        ('coreawstransitgatewayattachment_assets', 'transit_gateway_attachment'),
+        ('coreawsvpnconnection_assets', 'vpn_connection'),
+        ('coreawsflowlog_assets', 'flow_log'),
+        ('coreawsautoscalinggroup_assets', 'auto_scaling_group'),
+        ('coreawslaunchtemplate_assets', 'launch_template'),
+        ('coreawsami_assets', 'ami'),
+        ('coreawsebsvolumeattachment_assets', 'ebs_attachment'),
+
+        # AWS Priority 0 observability, container, edge, and backup models
+        # use explicit related names in their provider modules.
+        ('cloudwatch_alarms', 'aws_cloudwatch_alarm'),
+        ('cloudwatch_metrics', 'aws_cloudwatch_metric'),
+        ('log_groups', 'aws_log_group'),
+        ('aws_ecr_repositories', 'aws_ecr_repository'),
+        ('aws_ecr_images', 'aws_ecr_image'),
+        ('aws_ecs_task_definitions', 'aws_ecs_task_definition'),
+        ('aws_ecs_deployments', 'aws_ecs_deployment'),
+        ('aws_eks_clusters', 'aws_eks_cluster'),
+        ('aws_eks_node_groups', 'aws_eks_node_group'),
+        ('aws_eks_addons', 'aws_eks_addon'),
+        ('aws_eks_fargate_profiles', 'aws_eks_fargate_profile'),
+        ('aws_apprunner_services', 'aws_apprunner_service'),
+        ('aws_apprunner_deployments', 'aws_apprunner_deployment'),
+        ('route53_zones', 'aws_route53_zone'),
+        ('route53_records', 'aws_route53_record'),
+        ('cloudfront_distributions', 'aws_cloudfront_distribution'),
+        ('cloudfront_origin_access_controls', 'aws_cloudfront_origin_access_control'),
+        ('waf_web_acls', 'aws_waf_web_acl'),
+        ('global_accelerators', 'aws_global_accelerator'),
+        ('coreawsbackupvault_assets', 'aws_backup_vault'),
+        ('coreawsbackupplan_assets', 'aws_backup_plan'),
+        ('coreawsbackuprecoverypoint_assets', 'aws_backup_recovery_point'),
+        ('coreawsbackupjob_assets', 'aws_backup_job'),
+        ('coreawsbackupcopyjob_assets', 'aws_backup_copy_job'),
+
+        # AWS Priority 1 data-service models use the concrete class-qualified
+        # related_name generated by the provider module's abstract owner FK.
+        ('coreawsrdscluster_assets', 'aws_rds_cluster'),
+        ('coreawselasticachecluster_assets', 'aws_elasticache_cluster'),
+        ('coreawselasticachereplicationgroup_assets', 'aws_elasticache_replication_group'),
+        ('coreawselasticacheserverlesscache_assets', 'aws_elasticache_serverless_cache'),
+        ('coreawsmemorydbcluster_assets', 'aws_memorydb_cluster'),
+        ('coreawsopensearchdomain_assets', 'aws_opensearch_domain'),
+        ('coreawsefsfilesystem_assets', 'aws_efs_file_system'),
+        ('coreawsfsxfilesystem_assets', 'aws_fsx_file_system'),
+
+        # AWS Priority 1 application/integration models use the same
+        # class-qualified related_name convention.
+        ('coreawsapigatewayrestapi_assets', 'aws_apigateway_rest_api'),
+        ('coreawsapigatewayv2api_assets', 'aws_apigateway_v2_api'),
+        ('coreawseventbridgebus_assets', 'aws_eventbridge_bus'),
+        ('coreawseventbridgerule_assets', 'aws_eventbridge_rule'),
+        ('coreawseventbridgeschedule_assets', 'aws_eventbridge_schedule'),
+        ('coreawseventbridgepipe_assets', 'aws_eventbridge_pipe'),
+        ('coreawssnstopic_assets', 'aws_sns_topic'),
+        ('coreawssqsqueue_assets', 'aws_sqs_queue'),
+        ('coreawsstepfunctionsstatemachine_assets', 'aws_stepfunctions_state_machine'),
+        ('coreawsathenaworkgroup_assets', 'aws_athena_workgroup'),
+        ('coreawsathenadatacatalog_assets', 'aws_athena_data_catalog'),
+        ('coreawscloudformationstack_assets', 'aws_cloudformation_stack'),
+
+        # AWS Priority 1 delivery models use the same class-qualified
+        # related_name convention.
+        ('coreawselasticbeanstalkapplication_assets', 'aws_elastic_beanstalk_application'),
+        ('coreawselasticbeanstalkenvironment_assets', 'aws_elastic_beanstalk_environment'),
+        ('coreawscodebuildproject_assets', 'aws_codebuild_project'),
+        ('coreawscodebuildbuild_assets', 'aws_codebuild_build'),
+        ('coreawscodepipelinepipeline_assets', 'aws_codepipeline_pipeline'),
+        ('coreawscodepipelineexecution_assets', 'aws_codepipeline_execution'),
+
+        # AWS Priority 2 security and governance models use the concrete
+        # class-qualified related name generated by their abstract owner FK.
+        ('coreawsiamuser_assets', 'aws_iam_user'),
+        ('coreawsiamrole_assets', 'aws_iam_role'),
+        ('coreawsiampolicy_assets', 'aws_iam_policy'),
+        ('coreawskmskey_assets', 'aws_kms_key'),
+        ('coreawskmsalias_assets', 'aws_kms_alias'),
+        ('coreawscloudtrailtrail_assets', 'aws_cloudtrail_trail'),
+        ('coreawsconfigrule_assets', 'aws_config_rule'),
+        ('coreawsconfigrecorder_assets', 'aws_config_recorder'),
+        ('coreawsguarddutydetector_assets', 'aws_guardduty_detector'),
+        ('coreawssecurityhub_assets', 'aws_security_hub'),
+        ('coreawsinspector_assets', 'aws_inspector'),
+        ('coreawsmacie_assets', 'aws_macie'),
+        ('coreawsfirewallmanagerpolicy_assets', 'aws_firewall_manager_policy'),
+
+        # AWS credential/configuration metadata remains regional and stores
+        # identifiers and posture only; values are never persisted.
+        ('coreawssecretsmanagersecret_assets', 'aws_secrets_manager_secret'),
+        ('coreawsssmparameter_assets', 'aws_ssm_parameter'),
+
+        # AWS account operations and FinOps signals are account-scoped assets
+        # persisted at the control-plane Region for endpoint/audit context.
+        ('coreawshealthevent_assets', 'aws_health_event'),
+        ('coreawstrustedadvisorcheck_assets', 'aws_trusted_advisor_check'),
+        ('coreawscostexplorersignal_assets', 'aws_cost_explorer_signal'),
+        ('coreawscostanomalymonitor_assets', 'aws_cost_anomaly_monitor'),
+        ('coreawscostanomalysubscription_assets', 'aws_cost_anomaly_subscription'),
+        ('coreawscostanomaly_assets', 'aws_cost_anomaly'),
+    )
+
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
         PAUSED = "paused", "Paused"
@@ -206,84 +391,38 @@ class CoreCloud(TimeStampedModel):
         except NotImplementedError:
             raise NotImplementedError("Validation not implemented for this cloud provider")
 
+    def _asset_relations_for_provider(self):
+        """Return the shared and provider-specific asset relations.
+
+        Vultr's resource families are intentionally split across modules.  A
+        dynamic hook keeps the inventory list, monitoring scheduler, cleanup,
+        and dashboard in sync without making the core model import every
+        provider model during Django app initialization.
+        """
+        relations = list(self.ASSET_RELATIONS)
+        try:
+            provider_code = self.provider.code.lower()
+        except AttributeError:
+            return tuple(relations)
+        if provider_code == "vultr":
+            from apps.console.cloud.vultr.integration import get_vultr_asset_relations
+
+            for relation in get_vultr_asset_relations():
+                if relation not in relations:
+                    relations.append(relation)
+        return tuple(relations)
+
     def get_all_assets(self):
         """
-        Gets all assets (servers, volumes, databases) associated with this cloud.
+        Gets all assets associated with this cloud.
         Returns a list of tuples containing (asset, asset_type) pairs.
         """
-        assets = []
         provider_account = self.provider_account
-
-        # Get servers
-        if hasattr(provider_account, 'servers'):
-            servers = provider_account.servers.all()
-            assets.extend([(server, 'server') for server in servers])
-
-        # Get volumes
-        if hasattr(provider_account, 'volumes'):
-            volumes = provider_account.volumes.all()
-            assets.extend([(volume, 'volume') for volume in volumes])
-
-        # Get databases
-        if hasattr(provider_account, 'databases'):
-            databases = provider_account.databases.all()
-            assets.extend([(database, 'database') for database in databases])
-        
-        # Get RDS databases (AWS specific)
-        if hasattr(provider_account, 'rds_databases'):
-            rds_databases = provider_account.rds_databases.all()
-            assets.extend([(database, 'rds_database') for database in rds_databases])
-        
-        # Get Lambda functions (AWS specific)
-        if hasattr(provider_account, 'lambda_functions'):
-            lambda_functions = provider_account.lambda_functions.all()
-            assets.extend([(function, 'lambda') for function in lambda_functions])
-        
-        # Get DynamoDB tables (AWS specific)
-        if hasattr(provider_account, 'dynamodb_tables'):
-            dynamodb_tables = provider_account.dynamodb_tables.all()
-            assets.extend([(table, 'dynamodb') for table in dynamodb_tables])
-        
-        # Get S3 buckets (AWS specific)
-        if hasattr(provider_account, 's3_buckets'):
-            s3_buckets = provider_account.s3_buckets.all()
-            assets.extend([(bucket, 's3_bucket') for bucket in s3_buckets])
-        
-        # Get ACM certificates (AWS specific)
-        if hasattr(provider_account, 'acm_certificates'):
-            acm_certificates = provider_account.acm_certificates.all()
-            assets.extend([(cert, 'acm_certificate') for cert in acm_certificates])
-        
-        # Get snapshots (AWS specific)
-        if hasattr(provider_account, 'snapshots'):
-            snapshots = provider_account.snapshots.all()
-            assets.extend([(snapshot, 'snapshot') for snapshot in snapshots])
-        
-        # Get Elastic IPs (AWS specific)
-        if hasattr(provider_account, 'elastic_ips'):
-            elastic_ips = provider_account.elastic_ips.all()
-            assets.extend([(eip, 'elastic_ip') for eip in elastic_ips])
-        
-        # Get Load Balancers (AWS specific)
-        if hasattr(provider_account, 'load_balancers'):
-            load_balancers = provider_account.load_balancers.all()
-            assets.extend([(lb, 'load_balancer') for lb in load_balancers])
-        
-        # Get Security Groups (AWS specific)
-        if hasattr(provider_account, 'security_groups'):
-            security_groups = provider_account.security_groups.all()
-            assets.extend([(sg, 'security_group') for sg in security_groups])
-        
-        # Get ECS Services (AWS specific)
-        if hasattr(provider_account, 'ecs_services'):
-            ecs_services = provider_account.ecs_services.all()
-            assets.extend([(service, 'ecs_service') for service in ecs_services])
-        
-        # Get ECS Tasks (AWS specific)
-        if hasattr(provider_account, 'ecs_tasks'):
-            ecs_tasks = provider_account.ecs_tasks.all()
-            assets.extend([(task, 'ecs_task') for task in ecs_tasks])
-
+        assets = []
+        for relation_name, asset_type in self._asset_relations_for_provider():
+            manager = getattr(provider_account, relation_name, None)
+            if manager is not None:
+                assets.extend((asset, asset_type) for asset in manager.all())
         return assets
 
     def get_active_assets(self):
@@ -293,107 +432,15 @@ class CoreCloud(TimeStampedModel):
         Gets all active assets (excluding NO_LONGER_EXISTS) associated with this cloud.
         Returns a list of tuples containing (asset, asset_type) pairs.
         """
-        assets = []
         provider_account = self.provider_account
-
-        # Get active servers
-        if hasattr(provider_account, 'servers'):
-            servers = provider_account.servers.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(server, 'server') for server in servers])
-
-        # Get active volumes
-        if hasattr(provider_account, 'volumes'):
-            volumes = provider_account.volumes.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(volume, 'volume') for volume in volumes])
-
-        # Get active databases
-        if hasattr(provider_account, 'databases'):
-            databases = provider_account.databases.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(database, 'database') for database in databases])
-        
-        # Get active RDS databases (AWS specific)
-        if hasattr(provider_account, 'rds_databases'):
-            rds_databases = provider_account.rds_databases.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(database, 'rds_database') for database in rds_databases])
-        
-        # Get active Lambda functions (AWS specific)
-        if hasattr(provider_account, 'lambda_functions'):
-            lambda_functions = provider_account.lambda_functions.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(function, 'lambda') for function in lambda_functions])
-        
-        # Get active DynamoDB tables (AWS specific)
-        if hasattr(provider_account, 'dynamodb_tables'):
-            dynamodb_tables = provider_account.dynamodb_tables.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(table, 'dynamodb') for table in dynamodb_tables])
-        
-        # Get active S3 buckets (AWS specific)
-        if hasattr(provider_account, 's3_buckets'):
-            s3_buckets = provider_account.s3_buckets.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(bucket, 's3_bucket') for bucket in s3_buckets])
-        
-        # Get active ACM certificates (AWS specific)
-        if hasattr(provider_account, 'acm_certificates'):
-            acm_certificates = provider_account.acm_certificates.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(cert, 'acm_certificate') for cert in acm_certificates])
-        
-        # Get active snapshots (AWS specific)
-        if hasattr(provider_account, 'snapshots'):
-            snapshots = provider_account.snapshots.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(snapshot, 'snapshot') for snapshot in snapshots])
-        
-        # Get active Elastic IPs (AWS specific)
-        if hasattr(provider_account, 'elastic_ips'):
-            elastic_ips = provider_account.elastic_ips.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(eip, 'elastic_ip') for eip in elastic_ips])
-        
-        # Get active Load Balancers (AWS specific)
-        if hasattr(provider_account, 'load_balancers'):
-            load_balancers = provider_account.load_balancers.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(lb, 'load_balancer') for lb in load_balancers])
-        
-        # Get active Security Groups (AWS specific)
-        if hasattr(provider_account, 'security_groups'):
-            security_groups = provider_account.security_groups.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(sg, 'security_group') for sg in security_groups])
-        
-        # Get active ECS Services (AWS specific)
-        if hasattr(provider_account, 'ecs_services'):
-            ecs_services = provider_account.ecs_services.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(service, 'ecs_service') for service in ecs_services])
-        
-        # Get active ECS Tasks (AWS specific)
-        if hasattr(provider_account, 'ecs_tasks'):
-            ecs_tasks = provider_account.ecs_tasks.exclude(
-                monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
-            )
-            assets.extend([(task, 'ecs_task') for task in ecs_tasks])
-
+        assets = []
+        for relation_name, asset_type in self._asset_relations_for_provider():
+            manager = getattr(provider_account, relation_name, None)
+            if manager is not None:
+                active_assets = manager.exclude(
+                    monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
+                )
+                assets.extend((asset, asset_type) for asset in active_assets)
         return assets
 
     def get_monitored_assets(self):
@@ -403,245 +450,41 @@ class CoreCloud(TimeStampedModel):
         Gets all actively monitored assets associated with this cloud.
         Returns a list of tuples containing (asset, asset_type) pairs.
         """
-        assets = []
         provider_account = self.provider_account
-
-        # Get monitored servers
-        if hasattr(provider_account, 'servers'):
-            servers = provider_account.servers.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(server, 'server') for server in servers])
-
-        # Get monitored volumes
-        if hasattr(provider_account, 'volumes'):
-            volumes = provider_account.volumes.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(volume, 'volume') for volume in volumes])
-
-        # Get monitored databases
-        if hasattr(provider_account, 'databases'):
-            databases = provider_account.databases.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(database, 'database') for database in databases])
-        
-        # Get monitored RDS databases (AWS specific)
-        if hasattr(provider_account, 'rds_databases'):
-            rds_databases = provider_account.rds_databases.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(database, 'rds_database') for database in rds_databases])
-        
-        # Get monitored Lambda functions (AWS specific)
-        if hasattr(provider_account, 'lambda_functions'):
-            lambda_functions = provider_account.lambda_functions.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(function, 'lambda') for function in lambda_functions])
-        
-        # Get monitored DynamoDB tables (AWS specific)
-        if hasattr(provider_account, 'dynamodb_tables'):
-            dynamodb_tables = provider_account.dynamodb_tables.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(table, 'dynamodb') for table in dynamodb_tables])
-        
-        # Get monitored S3 buckets (AWS specific)
-        if hasattr(provider_account, 's3_buckets'):
-            s3_buckets = provider_account.s3_buckets.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(bucket, 's3_bucket') for bucket in s3_buckets])
-        
-        # Get monitored ACM certificates (AWS specific)
-        if hasattr(provider_account, 'acm_certificates'):
-            acm_certificates = provider_account.acm_certificates.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(cert, 'acm_certificate') for cert in acm_certificates])
-        
-        # Get monitored snapshots (AWS specific)
-        if hasattr(provider_account, 'snapshots'):
-            snapshots = provider_account.snapshots.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(snapshot, 'snapshot') for snapshot in snapshots])
-        
-        # Get monitored Elastic IPs (AWS specific)
-        if hasattr(provider_account, 'elastic_ips'):
-            elastic_ips = provider_account.elastic_ips.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(eip, 'elastic_ip') for eip in elastic_ips])
-        
-        # Get monitored Load Balancers (AWS specific)
-        if hasattr(provider_account, 'load_balancers'):
-            load_balancers = provider_account.load_balancers.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(lb, 'load_balancer') for lb in load_balancers])
-        
-        # Get monitored Security Groups (AWS specific)
-        if hasattr(provider_account, 'security_groups'):
-            security_groups = provider_account.security_groups.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(sg, 'security_group') for sg in security_groups])
-        
-        # Get monitored ECS Services (AWS specific)
-        if hasattr(provider_account, 'ecs_services'):
-            ecs_services = provider_account.ecs_services.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(service, 'ecs_service') for service in ecs_services])
-        
-        # Get monitored ECS Tasks (AWS specific)
-        if hasattr(provider_account, 'ecs_tasks'):
-            ecs_tasks = provider_account.ecs_tasks.filter(
-                monitoring=UtilAsset.Monitoring.ACTIVE
-            )
-            assets.extend([(task, 'ecs_task') for task in ecs_tasks])
-
+        assets = []
+        for relation_name, asset_type in self._asset_relations_for_provider():
+            manager = getattr(provider_account, relation_name, None)
+            if manager is not None:
+                monitored_assets = manager.filter(
+                    monitoring=UtilAsset.Monitoring.ACTIVE
+                )
+                assets.extend((asset, asset_type) for asset in monitored_assets)
         return assets
 
     def delete_all_assets(self):
         """
-        Deletes all assets (servers, volumes, databases) associated with this cloud.
+        Deletes all assets associated with this cloud.
         Each asset removes its own schedule and monitoring data on delete.
         """
         try:
             provider_account = self.provider_account
-
-            # Delete servers if they exist
-            if hasattr(provider_account, 'servers'):
-                servers = provider_account.servers.all()
-                for server in servers:
+            for relation_name, _asset_type in self._asset_relations_for_provider():
+                manager = getattr(provider_account, relation_name, None)
+                if manager is None:
+                    continue
+                for asset in manager.all():
                     try:
-                        server.delete()
+                        asset.delete()
                     except Exception as e:
-                        print(f"Error deleting server {server.name}: {str(e)}")
-
-            # Delete volumes if they exist
-            if hasattr(provider_account, 'volumes'):
-                volumes = provider_account.volumes.all()
-                for volume in volumes:
-                    try:
-                        volume.delete()
-                    except Exception as e:
-                        print(f"Error deleting volume {volume.name}: {str(e)}")
-
-            # Delete databases if they exist
-            if hasattr(provider_account, 'databases'):
-                databases = provider_account.databases.all()
-                for database in databases:
-                    try:
-                        database.delete()
-                    except Exception as e:
-                        print(f"Error deleting database {database.name}: {str(e)}")
-            
-            # Delete RDS databases if they exist (AWS specific)
-            if hasattr(provider_account, 'rds_databases'):
-                rds_databases = provider_account.rds_databases.all()
-                for database in rds_databases:
-                    try:
-                        database.delete()
-                    except Exception as e:
-                        print(f"Error deleting RDS database {database.name}: {str(e)}")
-            
-            # Delete Lambda functions if they exist (AWS specific)
-            if hasattr(provider_account, 'lambda_functions'):
-                lambda_functions = provider_account.lambda_functions.all()
-                for function in lambda_functions:
-                    try:
-                        function.delete()
-                    except Exception as e:
-                        print(f"Error deleting Lambda function {function.name}: {str(e)}")
-            
-            # Delete DynamoDB tables if they exist (AWS specific)
-            if hasattr(provider_account, 'dynamodb_tables'):
-                dynamodb_tables = provider_account.dynamodb_tables.all()
-                for table in dynamodb_tables:
-                    try:
-                        table.delete()
-                    except Exception as e:
-                        print(f"Error deleting DynamoDB table {table.name}: {str(e)}")
-            
-            # Delete S3 buckets if they exist (AWS specific)
-            if hasattr(provider_account, 's3_buckets'):
-                s3_buckets = provider_account.s3_buckets.all()
-                for bucket in s3_buckets:
-                    try:
-                        bucket.delete()
-                    except Exception as e:
-                        print(f"Error deleting S3 bucket {bucket.name}: {str(e)}")
-            
-            # Delete ACM certificates if they exist (AWS specific)
-            if hasattr(provider_account, 'acm_certificates'):
-                acm_certificates = provider_account.acm_certificates.all()
-                for cert in acm_certificates:
-                    try:
-                        cert.delete()
-                    except Exception as e:
-                        print(f"Error deleting ACM certificate {cert.name}: {str(e)}")
-            
-            # Delete snapshots if they exist (AWS specific)
-            if hasattr(provider_account, 'snapshots'):
-                snapshots = provider_account.snapshots.all()
-                for snapshot in snapshots:
-                    try:
-                        snapshot.delete()
-                    except Exception as e:
-                        print(f"Error deleting snapshot {snapshot.name}: {str(e)}")
-            
-            # Delete Elastic IPs if they exist (AWS specific)
-            if hasattr(provider_account, 'elastic_ips'):
-                elastic_ips = provider_account.elastic_ips.all()
-                for eip in elastic_ips:
-                    try:
-                        eip.delete()
-                    except Exception as e:
-                        print(f"Error deleting Elastic IP {eip.name}: {str(e)}")
-            
-            # Delete Load Balancers if they exist (AWS specific)
-            if hasattr(provider_account, 'load_balancers'):
-                load_balancers = provider_account.load_balancers.all()
-                for lb in load_balancers:
-                    try:
-                        lb.delete()
-                    except Exception as e:
-                        print(f"Error deleting Load Balancer {lb.name}: {str(e)}")
-            
-            # Delete Security Groups if they exist (AWS specific)
-            if hasattr(provider_account, 'security_groups'):
-                security_groups = provider_account.security_groups.all()
-                for sg in security_groups:
-                    try:
-                        sg.delete()
-                    except Exception as e:
-                        print(f"Error deleting Security Group {sg.name}: {str(e)}")
-            
-            # Delete ECS Services if they exist (AWS specific)
-            if hasattr(provider_account, 'ecs_services'):
-                ecs_services = provider_account.ecs_services.all()
-                for service in ecs_services:
-                    try:
-                        service.delete()
-                    except Exception as e:
-                        print(f"Error deleting ECS Service {service.name}: {str(e)}")
-            
-            # Delete ECS Tasks if they exist (AWS specific)
-            if hasattr(provider_account, 'ecs_tasks'):
-                ecs_tasks = provider_account.ecs_tasks.all()
-                for task in ecs_tasks:
-                    try:
-                        task.delete()
-                    except Exception as e:
-                        print(f"Error deleting ECS Task {task.name}: {str(e)}")
+                        logger.warning(
+                            "Error deleting %s asset %s: %s",
+                            relation_name,
+                            asset.name,
+                            e,
+                        )
 
         except Exception as e:
-            print(f"Error during asset deletion for cloud {self.name}: {str(e)}")
+            logger.warning("Error during asset deletion for cloud %s: %s", self.name, e)
             raise
 
     def delete_all_asset_schedules(self):

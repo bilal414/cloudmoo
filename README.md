@@ -11,9 +11,16 @@ timeline per asset, and emails you when something goes down or comes back.
 
 - **Multi-cloud asset discovery & sync** — connect accounts and CloudMoo
   imports your infrastructure automatically:
-  - **DigitalOcean** — Droplets, Volumes, Databases
+  - **DigitalOcean** — Droplets, Managed Databases, Volumes, backups and
+    snapshots, Reserved IPs, Firewalls, Load Balancers, App Platform, Spaces,
+    Container Registry, Kubernetes, VPC networking, DNS, CDN endpoints, and
+    certificates. See [DigitalOcean resource coverage](docs/digitalocean-resources.md).
   - **AWS** — EC2, EBS, RDS, Lambda, DynamoDB, S3, ACM, Snapshots, Elastic IPs,
-    Load Balancers, Security Groups, ECS
+    Load Balancers, Security Groups, ECS, and read-only Lightsail resources
+    (instances, disks, snapshots, databases, networking, storage, CDN, DNS,
+    containers, alarms, operations, and auto-snapshots). See [AWS Lightsail
+    resource coverage](docs/aws-lightsail-resources.md) and the [AWS resource
+    integration map](docs/aws-resources.md).
   - **Vultr, Hetzner, Linode, UpCloud** — Servers & Volumes
 - **Scheduled status monitoring** — per-asset uptime checks on the built-in
   scheduler (Celery Beat + worker), from 1-minute intervals up, honoring

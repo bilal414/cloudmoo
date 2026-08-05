@@ -3,17 +3,55 @@ from apps.console.account.models import CoreAccount, CoreAccountMembership
 from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.digitalocean.models import (
     CoreDigitalOceanAccount, CoreDigitalOceanServer, CoreDigitalOceanDatabase,
-    CoreDigitalOceanVolume
+    CoreDigitalOceanVolume, CoreDigitalOceanCDNEndpoint,
+    CoreDigitalOceanCertificate, CoreDigitalOceanDNSRecord,
+    CoreDigitalOceanDomain, CoreDigitalOceanKubernetesCluster,
+    CoreDigitalOceanKubernetesNodePool, CoreDigitalOceanVPC,
+    CoreDigitalOceanVPCNATGateway, CoreDigitalOceanVPCPeering,
 )
 from apps.console.cloud.hetzner.models import (
     CoreHetznerAccount, CoreHetznerServer, CoreHetznerVolume
 )
+from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.vultr.models import (
     CoreVultrAccount, CoreVultrServer, CoreVultrDatabase, CoreVultrVolume
 )
+from apps.console.cloud.vultr.integration import get_vultr_resource_models
 from apps.console.cloud.aws.models import (
     CoreAWSAccount, CoreAWSInstance, CoreAWSVolume, CoreAWSRDSDatabase, CoreAWSLambda, CoreAWSDynamoDB, CoreAWSS3Bucket, CoreAWSACMCertificate, CoreAWSSnapshot, CoreAWSElasticIP, CoreAWSLoadBalancer, CoreAWSSecurityGroup, CoreAWSECSService, CoreAWSECSTask
 )
+from apps.console.cloud.aws.lightsail import (
+    CoreAWSLightsailInstance,
+    CoreAWSLightsailDisk,
+    CoreAWSLightsailInstanceSnapshot,
+    CoreAWSLightsailDiskSnapshot,
+    CoreAWSLightsailStaticIP,
+    CoreAWSLightsailDatabase,
+    CoreAWSLightsailDatabaseSnapshot,
+    CoreAWSLightsailLoadBalancer,
+    CoreAWSLightsailCertificate,
+    CoreAWSLightsailBucket,
+    CoreAWSLightsailDistribution,
+    CoreAWSLightsailDomain,
+    CoreAWSLightsailDNSRecord,
+    CoreAWSLightsailContainerService,
+    CoreAWSLightsailContainerDeployment,
+    CoreAWSLightsailContainerImage,
+    CoreAWSLightsailAlarm,
+    CoreAWSLightsailOperation,
+    CoreAWSLightsailAutoSnapshot,
+)
+from apps.console.cloud.aws.network import AWS_NETWORK_COLLECTION_SPECS
+from apps.console.cloud.aws.observability import AWS_OBSERVABILITY_ASSET_MODELS
+from apps.console.cloud.aws.containers import AWS_CONTAINER_ASSET_MODELS
+from apps.console.cloud.aws.edge import AWS_EDGE_ASSET_MODELS
+from apps.console.cloud.aws.backup import AWS_BACKUP_ASSET_MODELS
+from apps.console.cloud.aws.data_services import AWS_DATA_SERVICE_ASSET_MODELS
+from apps.console.cloud.aws.application_services import AWS_APPLICATION_ASSET_MODELS
+from apps.console.cloud.aws.delivery import AWS_DELIVERY_ASSET_MODELS
+from apps.console.cloud.aws.security_governance import AWS_SECURITY_GOVERNANCE_ASSET_MODELS
+from apps.console.cloud.aws.credentials_config import AWS_CREDENTIALS_CONFIG_ASSET_MODELS
+from apps.console.cloud.aws.account_operations import AWS_ACCOUNT_OPERATIONS_ASSET_MODELS
 from apps.console.member.models import CoreMember
 from apps.console.plan.models import CorePlan
 from django.contrib import admin
@@ -100,6 +138,26 @@ class CoreDigitalOceanDatabaseAdmin(admin.ModelAdmin):
     search_fields = ('name', 'unique_id')
 
 
+class CoreDigitalOceanInventoryAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _digitalocean_asset_model in (
+    CoreDigitalOceanKubernetesCluster,
+    CoreDigitalOceanKubernetesNodePool,
+    CoreDigitalOceanVPC,
+    CoreDigitalOceanVPCPeering,
+    CoreDigitalOceanVPCNATGateway,
+    CoreDigitalOceanDomain,
+    CoreDigitalOceanDNSRecord,
+    CoreDigitalOceanCDNEndpoint,
+    CoreDigitalOceanCertificate,
+):
+    admin.site.register(_digitalocean_asset_model, CoreDigitalOceanInventoryAssetAdmin)
+
+
 # Hetzner Admin
 @admin.register(CoreHetznerAccount)
 class CoreHetznerAccountAdmin(admin.ModelAdmin):
@@ -120,6 +178,16 @@ class CoreHetznerVolumeAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'monitoring', 'type')
     list_filter = ('monitoring', 'type')
     search_fields = ('name', 'unique_id')
+
+
+class CoreHetznerInventoryAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _hetzner_asset_model in HETZNER_RESOURCE_MODELS.values():
+    admin.site.register(_hetzner_asset_model, CoreHetznerInventoryAssetAdmin)
 
 
 # Vultr Admin
@@ -149,6 +217,21 @@ class CoreVultrDatabaseAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'monitoring', 'type')
     list_filter = ('monitoring', 'type')
     search_fields = ('name', 'unique_id')
+
+
+class CoreVultrInventoryAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _vultr_asset_model in get_vultr_resource_models().values():
+    if _vultr_asset_model in {CoreVultrServer, CoreVultrVolume, CoreVultrDatabase}:
+        continue
+    try:
+        admin.site.register(_vultr_asset_model, CoreVultrInventoryAssetAdmin)
+    except admin.sites.AlreadyRegistered:
+        pass
 
 
 # AWS Admin
@@ -248,3 +331,86 @@ class CoreAWSECSTaskAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'monitoring', 'type')
     list_filter = ('monitoring', 'type')
     search_fields = ('name', 'unique_id')
+
+
+class CoreAWSPriority0AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+_aws_priority0_asset_models = tuple(
+    spec['model'] for spec in AWS_NETWORK_COLLECTION_SPECS
+)
+_aws_priority0_asset_models += tuple(AWS_OBSERVABILITY_ASSET_MODELS.values())
+_aws_priority0_asset_models += tuple(AWS_CONTAINER_ASSET_MODELS.values())
+_aws_priority0_asset_models += tuple(AWS_EDGE_ASSET_MODELS.values())
+_aws_priority0_asset_models += tuple(AWS_BACKUP_ASSET_MODELS.values())
+
+for _aws_priority0_asset_model in _aws_priority0_asset_models:
+    admin.site.register(_aws_priority0_asset_model, CoreAWSPriority0AssetAdmin)
+
+
+class CoreAWSPriority1AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+_aws_priority1_asset_models = (
+    tuple(AWS_DATA_SERVICE_ASSET_MODELS.values())
+    + tuple(AWS_APPLICATION_ASSET_MODELS.values())
+    + tuple(AWS_DELIVERY_ASSET_MODELS.values())
+)
+
+for _aws_priority1_asset_model in _aws_priority1_asset_models:
+    admin.site.register(_aws_priority1_asset_model, CoreAWSPriority1AssetAdmin)
+
+
+class CoreAWSPriority2AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    # Account-operation assets use provider_id while the other Priority 2
+    # models use unique_id; name is the shared searchable identity.
+    search_fields = ('name',)
+
+
+_aws_priority2_asset_models = (
+    tuple(AWS_SECURITY_GOVERNANCE_ASSET_MODELS.values())
+    + tuple(AWS_CREDENTIALS_CONFIG_ASSET_MODELS.values())
+    + tuple(AWS_ACCOUNT_OPERATIONS_ASSET_MODELS.values())
+)
+
+for _aws_priority2_asset_model in _aws_priority2_asset_models:
+    admin.site.register(_aws_priority2_asset_model, CoreAWSPriority2AssetAdmin)
+
+
+
+class CoreAWSLightsailAssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'monitoring', 'type')
+    list_filter = ('monitoring', 'type')
+    search_fields = ('name', 'unique_id')
+
+
+for _lightsail_asset_model in (
+    CoreAWSLightsailInstance,
+    CoreAWSLightsailDisk,
+    CoreAWSLightsailInstanceSnapshot,
+    CoreAWSLightsailDiskSnapshot,
+    CoreAWSLightsailStaticIP,
+    CoreAWSLightsailDatabase,
+    CoreAWSLightsailDatabaseSnapshot,
+    CoreAWSLightsailLoadBalancer,
+    CoreAWSLightsailCertificate,
+    CoreAWSLightsailBucket,
+    CoreAWSLightsailDistribution,
+    CoreAWSLightsailDomain,
+    CoreAWSLightsailDNSRecord,
+    CoreAWSLightsailContainerService,
+    CoreAWSLightsailContainerDeployment,
+    CoreAWSLightsailContainerImage,
+    CoreAWSLightsailAlarm,
+    CoreAWSLightsailOperation,
+    CoreAWSLightsailAutoSnapshot,
+):
+    admin.site.register(_lightsail_asset_model, CoreAWSLightsailAssetAdmin)
