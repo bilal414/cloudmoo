@@ -1,0 +1,39 @@
+.git
+.github
+.gitignore
+.dockerignore
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local Python and test artifacts
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
+
+# Local/editor files
+.DS_Store
+.idea
+.vscode
+.claude
+
+# Source-only documentation and static-site files
+_docs
+website
+docs
+tests
+
+# Frontend dependencies and generated assets
+**/node_modules
+**/package-lock.json
+static
+*.log

@@ -45,13 +45,52 @@ def env_list(key, default=None):
 
 
 # ---------------------------------------------------------------------------
+# Public URL
+# ---------------------------------------------------------------------------
+# APP_DOMAIN remains the explicit override. The platform fallbacks make a
+# first deployment usable without asking users to copy a generated hostname
+# into another field on Render, Railway, or Heroku.
+APP_DOMAIN = (
+    config.get("APP_DOMAIN")
+    or config.get("RENDER_EXTERNAL_HOSTNAME")
+    or config.get("RAILWAY_PUBLIC_DOMAIN")
+    or config.get("HEROKU_APP_DEFAULT_DOMAIN_NAME")
+    or (
+        f"{config['HEROKU_APP_NAME']}.herokuapp.com"
+        if config.get("HEROKU_APP_NAME")
+        else None
+    )
+    or "localhost:8000"
+)
+APP_PROTOCOL = config.get("APP_PROTOCOL", "http://")
+APP_URL = f"{APP_PROTOCOL}{APP_DOMAIN}"
+APP_HOSTNAME = str(APP_DOMAIN).split(":", 1)[0].strip()
+
+
+# ---------------------------------------------------------------------------
 # Core
 # ---------------------------------------------------------------------------
 SECRET_KEY = config["DJANGO_SECRET_KEY"]
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 DJANGO_SERVER = config.get("DJANGO_SERVER", "development")
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"] if DEBUG else [])
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+DEFAULT_ALLOWED_HOSTS = (
+    ["localhost", "127.0.0.1"]
+    if DEBUG
+    else ([APP_HOSTNAME] if APP_HOSTNAME not in {"", "localhost", "127.0.0.1"} else [])
+)
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default=DEFAULT_ALLOWED_HOSTS)
+if APP_HOSTNAME not in {"", "localhost", "127.0.0.1"} and APP_HOSTNAME not in ALLOWED_HOSTS:
+    # APP_DOMAIN is the public URL override, so include it even when a
+    # platform manifest supplies a broader default such as .herokuapp.com.
+    ALLOWED_HOSTS.append(APP_HOSTNAME)
+DEFAULT_CSRF_TRUSTED_ORIGINS = (
+    [APP_URL]
+    if APP_DOMAIN != "localhost:8000" and APP_PROTOCOL in {"http://", "https://"}
+    else []
+)
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS", default=DEFAULT_CSRF_TRUSTED_ORIGINS
+)
 
 HTTPS_ENABLED = env_bool("HTTPS_ENABLED", default=False)
 if HTTPS_ENABLED:
@@ -83,6 +122,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -228,11 +268,6 @@ STATICFILES_DIRS = (
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-# App Domain
-APP_DOMAIN = config.get("APP_DOMAIN", "localhost:8000")
-APP_PROTOCOL = config.get("APP_PROTOCOL", "http://")
-APP_URL = f"{APP_PROTOCOL}{APP_DOMAIN}"
 
 # ---------------------------------------------------------------------------
 # Email

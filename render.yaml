@@ -238,4 +238,6 @@ envVarGroups:
       - key: HTTPS_ENABLED
         value: "true"
       - key: REGISTRATION_OPEN
-        value: "false"
+        # Keep the first-run sign-up available. Disable it after the instance
+        # owner has created and verified the initial account.
+        value: "true"

@@ -1,6 +1,6 @@
 from django.views import View
 from django.views.generic import CreateView, TemplateView
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.contrib.auth import login
 from django.db import transaction
 from django.shortcuts import redirect
@@ -67,7 +67,11 @@ class SignupView(CreateView):
         return super().form_valid(form)
 
     def send_verification_email(self, user, verification_token):
-        verification_url = f"{settings.APP_URL}/verify-email/{verification_token}/"
+        # Build from the current request so generated PaaS hostnames and
+        # custom domains work without requiring APP_DOMAIN during signup.
+        verification_url = self.request.build_absolute_uri(
+            reverse('console:verify_email', kwargs={'token': verification_token})
+        )
 
         context = {
             'user': user,
