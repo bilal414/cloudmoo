@@ -200,6 +200,7 @@ def validate_vultr_endpoint(endpoint: str) -> str:
         "object-storage/clusters",
         "object-storage/tiers",
         "registry",
+        "registries",
         "inference",
         "regions",
     }:
