@@ -151,15 +151,17 @@ class CoreDigitalOceanAccount(UtilCloud):
                 and collection is None
             ):
                 meta = data.get('meta')
-                meta_confirms_empty = isinstance(meta, dict) and meta.get('total') == 0
-                bare_null = 'meta' not in data and 'links' not in data
-                if meta_confirms_empty or bare_null:
+                if isinstance(meta, dict) and meta.get('total') == 0:
                     # The live VPC NAT gateway endpoint returns a
                     # present-but-null collection alongside meta total=0 for an
-                    # empty account, and the databases endpoint answers a bare
-                    # {"databases": null}. Treat both as confirmed-empty, but
-                    # keep rejecting unexplained nulls for other endpoints.
+                    # empty account; the pagination tail terminates normally.
                     collection = []
+                elif 'meta' not in data and 'links' not in data:
+                    # The databases endpoint answers a bare {"databases": null}
+                    # with no pagination metadata at all; the confirmed-empty
+                    # collection is the complete inventory. Keep rejecting
+                    # unexplained nulls for endpoints that do not opt in.
+                    return all_items
             if collection is None:
                 all_items.extend(require_inventory_list(data, [collection_key], 'DigitalOcean'))
             elif isinstance(collection, list):
