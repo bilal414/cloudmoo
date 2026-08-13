@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from apps.console.cloud.models import CloudInventoryTransientError
+from apps.console.cloud.vultr.resources_base import VultrAPIError
 
 
 logger = logging.getLogger(__name__)
@@ -154,11 +155,23 @@ def sync_vultr_inventory(account) -> dict[str, Any]:
             selected_keys = [key for key, spec in persistent_specs.items() if spec.model not in legacy_models]
             if selected_keys:
                 try:
-                    result = family_sync(account, resources=selected_keys)
-                except TypeError:
-                    # A family implementation may expose a positional-only
-                    # resource selector; the selected set remains explicit.
-                    result = family_sync(account, selected_keys)
+                    try:
+                        result = family_sync(account, resources=selected_keys)
+                    except TypeError:
+                        # A family implementation may expose a positional-only
+                        # resource selector; the selected set remains explicit.
+                        result = family_sync(account, selected_keys)
+                except (VultrAPIError, CloudInventoryTransientError) as error:
+                    # A transient provider failure in one service family must
+                    # not abort the whole inventory: the failed family's rows
+                    # simply stay unreconciled (fail-closed on deletions),
+                    # and the next scheduled sync retries it.
+                    logger.warning(
+                        "Vultr inventory skipped %s after a provider error: %s",
+                        module.__name__.rsplit(".", 1)[-1],
+                        error,
+                    )
+                    result = {"error": type(error).__name__}
             else:
                 result = {"skipped": "legacy_models_only"}
             results[module.__name__.rsplit(".", 1)[-1]] = result
@@ -169,7 +182,7 @@ def sync_vultr_inventory(account) -> dict[str, Any]:
 
             client = VultrClient(account.access_token)
 
-        family_result: dict[str, int] = {}
+        family_result: dict[str, Any] = {}
         for key, spec in persistent_specs.items():
             model = getattr(spec, "model", None)
             if model in legacy_models:
@@ -177,7 +190,14 @@ def sync_vultr_inventory(account) -> dict[str, Any]:
             endpoint = getattr(spec, "endpoint", None)
             if not endpoint:
                 raise CloudInventoryTransientError(f"Vultr resource endpoint is missing: {key}")
-            records = client.list_collection(spec)
+            try:
+                records = client.list_collection(spec)
+            except (VultrAPIError, CloudInventoryTransientError) as error:
+                # Keep a transient provider failure scoped to this family so
+                # the remaining families still reconcile (see above).
+                logger.warning("Vultr inventory skipped %s after a provider error: %s", key, error)
+                family_result[str(key)] = {"error": type(error).__name__}
+                continue
             from apps.console.cloud.vultr.resources_base import reconcile_collection
 
             family_result[str(key)] = reconcile_collection(account, spec, records, client)
