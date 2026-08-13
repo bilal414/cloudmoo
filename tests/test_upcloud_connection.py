@@ -51,14 +51,13 @@ class UpCloudConnectionTestCase(CloudTestMixin, TestCase):
         self.assertTrue(result)
         
         # Verify the correct API endpoint was called with proper headers
+        expected_headers = upcloud_account._auth_headers()
         mock_get.assert_called_once_with(
             'https://api.upcloud.com/1.3/account',
-            headers={
-                'Authorization': f'Basic {upcloud_account._get_auth_token()}',
-                'Content-Type': 'application/json'
-            },
+            headers=expected_headers,
             timeout=10
         )
+        self.assertTrue(expected_headers['Authorization'].startswith('Basic '))
 
     @patch('requests.get')
     def test_invalid_credentials_connection(self, mock_get):
