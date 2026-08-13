@@ -1,11 +1,18 @@
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from unittest.mock import patch
 
+from apps.console.account.models import CoreAccount, CoreAccountMembership
+from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.vultr.integration import (
     get_vultr_asset_relations,
     get_vultr_resource_models,
     get_vultr_resource_specs,
+    sync_vultr_inventory,
 )
+from apps.console.cloud.vultr.models import CoreVultrAccount
+from apps.console.cloud.vultr.resources_base import VultrAPIError
 from apps.console.cloud.vultr.resources_data_network import CoreVultrLoadBalancer
+from apps.console.member.models import CoreMember
 from apps.monitoring.checks import get_check_function
 
 
@@ -50,3 +57,61 @@ class VultrIntegrationRegistryTests(SimpleTestCase):
 
         with self.assertRaises(ValueError):
             get_check_function("vultr", "not_a_vultr_asset")
+
+
+class VultrInventoryIsolationTests(TestCase):
+    """A provider error in one service family must not abort the whole sync."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+
+        self.user = User.objects.create_user(
+            username='vultr-isolation-user',
+            email='vultr-isolation@example.com',
+            password='testpass123',
+        )
+        self.account = CoreAccount.objects.create(
+            name='Vultr Isolation Test',
+            status=CoreAccount.Status.ACTIVE,
+            owner=self.user,
+        )
+        member = CoreMember.objects.create(user=self.user, active_account=self.account)
+        CoreAccountMembership.objects.create(
+            account=self.account,
+            member=member,
+            role=CoreAccountMembership.Role.OWNER,
+        )
+        self.provider, _ = CoreCloudServiceProvider.objects.get_or_create(
+            code='vultr',
+            defaults={'name': 'Vultr', 'status': CoreCloudServiceProvider.Status.ACTIVE},
+        )
+        self.cloud = CoreCloud.objects.create(
+            account=self.account,
+            provider=self.provider,
+            status=CoreCloud.Status.ACTIVE,
+        )
+        self.vultr_account = CoreVultrAccount.objects.create(
+            cloud=self.cloud,
+            name='Isolation Vultr Account',
+            access_token='test-token',
+        )
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    def test_family_provider_failure_is_recorded_without_aborting_sync(self, _schedule_create):
+        with patch(
+            'apps.console.cloud.vultr.resources_data_network.sync_vultr_resources',
+            return_value={'vpc': {'created': 0}},
+        ), patch(
+            'apps.console.cloud.vultr.resources_platform.sync_vultr_resources',
+            side_effect=VultrAPIError(
+                'Vultr inventory provider is temporarily unavailable', status_code=500,
+            ),
+        ), patch(
+            'apps.console.cloud.vultr.resources_base.VultrClient.list_collection',
+            return_value=[],
+        ):
+            results = sync_vultr_inventory(self.vultr_account)
+
+        self.assertEqual(results['resources_platform'], {'error': 'VultrAPIError'})
+        self.assertIn('resources_compute', results)
+        self.assertEqual(results['resources_data_network'], {'vpc': {'created': 0}})
