@@ -186,6 +186,40 @@ class VultrInventoryTests(SimpleTestCase):
                 client=client,
             )
 
+    def test_absent_optional_feature_collections_record_empty(self):
+        # Accounts without VPC 2.0, NAT gateways, CDN zones, or TLS
+        # certificates get HTTP 404 for those collections (live behavior);
+        # the families record as absent instead of aborting the sync.
+        client = FakeVultrClient({
+            "vpc2": VultrAPIError("Vultr inventory request was rejected", status_code=404),
+            "nat-gateways": VultrAPIError("Vultr inventory request was rejected", status_code=404),
+            "cdn": VultrAPIError("Vultr inventory request was rejected", status_code=404),
+            "ssl/certificates": VultrAPIError("Vultr inventory request was rejected", status_code=404),
+        })
+
+        result = collect_vultr_inventory(
+            SimpleNamespace(access_token="token"),
+            resources=["vpc", "nat_gateway", "cdn_endpoint", "certificate"],
+            client=client,
+        )
+
+        self.assertEqual(result["vpc"], [])
+        self.assertEqual(result["nat_gateway"], [])
+        self.assertEqual(result["cdn_endpoint"], [])
+        self.assertEqual(result["certificate"], [])
+
+    def test_provider_error_still_aborts_collection(self):
+        client = FakeVultrClient({
+            "databases": VultrAPIError("Vultr inventory provider is temporarily unavailable", status_code=500),
+        })
+
+        with self.assertRaises(VultrAPIError):
+            collect_vultr_resource_records(
+                SimpleNamespace(access_token="token"),
+                "database",
+                client=client,
+            )
+
 
 class VultrCheckTests(SimpleTestCase):
     @patch("apps.monitoring.checks.vultr_data_network.VultrClient.get_json")

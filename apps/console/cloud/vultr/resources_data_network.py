@@ -27,6 +27,7 @@ from apps.console.cloud.models import CloudInventoryTransientError, require_inve
 from apps.console.cloud.vultr.models import CoreVultrAccount, CoreVultrDatabase
 from apps.console.cloud.vultr.resources_base import (
     CoreVultrResource,
+    VultrAPIError,
     VultrClient,
     VultrResourceSpec,
     reconcile_collection,
@@ -780,12 +781,22 @@ paginate_vultr_collection = iter_vultr_collection
 def _collect_simple_records(client: Any, spec: VultrResourceSpec) -> list[dict[str, Any]]:
     identifiers: set[str] = set()
     records: list[dict[str, Any]] = []
-    for item in iter_vultr_collection(client, spec.endpoint, spec.collection_key):
-        record = _normalized_record(item, spec)
-        if record["unique_id"] in identifiers:
-            raise CloudInventoryTransientError(f"Vultr returned a duplicate {spec.key} identifier")
-        identifiers.add(record["unique_id"])
-        records.append(record)
+    try:
+        items = iter_vultr_collection(client, spec.endpoint, spec.collection_key)
+        for item in items:
+            record = _normalized_record(item, spec)
+            if record["unique_id"] in identifiers:
+                raise CloudInventoryTransientError(f"Vultr returned a duplicate {spec.key} identifier")
+            identifiers.add(record["unique_id"])
+            records.append(record)
+    except VultrAPIError as error:
+        # Accounts without an optional feature (VPC 2.0, NAT gateways, CDN
+        # zones, TLS certificates) get HTTP 404 for that collection. Record
+        # the capability as absent, matching the documented live-E2E
+        # behavior; a 404 after records were validated is still fatal.
+        if getattr(error, "status_code", None) == 404 and not records:
+            return []
+        raise
     return records
 
 
