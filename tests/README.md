@@ -16,7 +16,8 @@ The testing infrastructure provides:
 ```
 tests/
 ├── README.md                    # This documentation
-├── test_accounts.json           # Test account configurations and mock responses
+├── test_accounts.json           # Tracked dummy configurations and mock responses
+├── test_accounts.local.json     # Optional ignored local live-test configuration
 ├── utils.py                     # Testing utilities and helper classes
 ├── test_integration.py          # Integration tests with real APIs
 ├── setup_test_accounts.py       # Management command
@@ -32,7 +33,16 @@ tests/
 
 ### 1. Configure Test Accounts
 
-Edit `test_accounts.json` to add your test credentials:
+Never add real credentials to the tracked `test_accounts.json`. To use the
+legacy real-API integration suite, create the ignored local override and point
+CloudMoo at it:
+
+```bash
+cp tests/test_accounts.json tests/test_accounts.local.json
+export CLOUDMOO_TEST_CONFIG_PATH="$PWD/tests/test_accounts.local.json"
+```
+
+Edit only `test_accounts.local.json` to add test credentials:
 
 ```json
 {
@@ -69,13 +79,21 @@ python manage.py test tests.test_aws_connection
 
 To test against real cloud APIs:
 
-1. Add real credentials to `test_accounts.json`
-2. Set `"use_real_api": true` in test settings
+1. Export `CLOUDMOO_TEST_CONFIG_PATH` to an ignored local JSON file as above.
+2. Add credentials only for a dedicated test account/team and set
+   `"use_real_api": true` in that local file.
 3. Run integration tests:
 
 ```bash
 python manage.py test tests.test_integration
 ```
+
+These legacy integration tests validate read paths; they are not ownership-safe
+resource lifecycle harnesses. The explicit `live_vultr_e2e.py`,
+`live_vultr_database_e2e.py`, and `live_hetzner_e2e.py` scripts enforce their
+own test-resource naming/ownership rules. Review each script's `--help` and
+cleanup behavior before providing credentials. No AWS or DigitalOcean
+create/update/delete live harness is currently included.
 
 ### 4. Setup Test Database Accounts
 

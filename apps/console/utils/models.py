@@ -3,6 +3,8 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -12,9 +14,14 @@ from apps.console.account.models import CoreAccountMembership
 from apps.monitoring import schedules
 from apps.monitoring.checks.base import NON_ALERTING_STATUSES, format_duration
 from apps.monitoring.metadata import redact_sensitive_metadata
-from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
+from apps.monitoring.models import (
+    AssetMonitoringState,
+    AssetStatusEmail,
+    AssetStatusLog,
+)
 
 logger = logging.getLogger(__name__)
+MAX_NOTIFICATION_EMAILS = 50
 
 
 class UtilCloud(TimeStampedModel):
@@ -291,7 +298,9 @@ class UtilAsset(TimeStampedModel):
         full_key = f"{base_key}{self.unique_id}"
         if len(slugify(full_key)) > 64:
             # Hash the unique_id to keep it short but unique
-            unique_id_hash = hashlib.md5(self.unique_id.encode()).hexdigest()[:16]
+            unique_id_hash = hashlib.md5(
+                self.unique_id.encode(), usedforsecurity=False
+            ).hexdigest()[:16]
             final_key = f"{base_key}{unique_id_hash}"
         else:
             final_key = full_key
@@ -350,6 +359,17 @@ class UtilAsset(TimeStampedModel):
         return self._monitoring_state_stale(self, self.monitoring_state)
 
     @property
+    def monitoring_supported(self):
+        """Whether this provider/type pair has a registered status checker."""
+        from apps.monitoring.checks import get_check_function
+
+        try:
+            get_check_function(self.provider_code, self.type)
+        except ValueError:
+            return False
+        return True
+
+    @property
     def status(self):
         """
         Gets the latest status from the asset status logs.
@@ -396,8 +416,8 @@ class UtilAsset(TimeStampedModel):
                 self._cached_status = "unknown"
                 return "unknown"
 
-        except Exception as e:
-            print(f"Error fetching status for asset {self.name}: {str(e)}")
+        except Exception:
+            logger.exception("Error fetching status for asset %s", self.pk)
             self._cached_status = "unknown"
             return "unknown"
 
@@ -462,8 +482,8 @@ class UtilAsset(TimeStampedModel):
 
             return status_map
 
-        except Exception as e:
-            print(f"Error fetching bulk statuses: {str(e)}")
+        except Exception:
+            logger.exception("Error fetching bulk asset statuses")
             return {}
 
     def save(self, *args, **kwargs):
@@ -485,132 +505,31 @@ class UtilAsset(TimeStampedModel):
             original = self.__class__.objects.get(pk=self.pk)
             monitoring_changed = original.monitoring != self.monitoring
 
+        if is_new:
+            emails = self.notification_emails if isinstance(self.notification_emails, list) else []
+            owner_email = self.owner_email
+            if owner_email and owner_email not in emails:
+                self.notification_emails = [*emails, owner_email]
+
         super().save(*args, **kwargs)
 
-        if is_new and self.type in [
-            self.Type.SERVER,
-            self.Type.VOLUME,
-            self.Type.DATABASE,
-            self.Type.RDS_DATABASE,
-            self.Type.LAMBDA,
-            self.Type.DYNAMODB,
-            self.Type.S3_BUCKET,
-            self.Type.ACM_CERTIFICATE,
-            self.Type.SNAPSHOT,
-            self.Type.BACKUP,
-            self.Type.ELASTIC_IP,
-            self.Type.RESERVED_IP,
-            self.Type.LOAD_BALANCER,
-            self.Type.SECURITY_GROUP,
-            self.Type.FIREWALL,
-            self.Type.APP_PLATFORM,
-            self.Type.OBJECT_STORAGE,
-            self.Type.CONTAINER_REGISTRY,
-            self.Type.ECS_SERVICE,
-            self.Type.ECS_TASK,
-            self.Type.KUBERNETES_CLUSTER,
-            self.Type.KUBERNETES_NODE_POOL,
-            self.Type.PRIMARY_IP,
-            self.Type.FLOATING_IP,
-            self.Type.NETWORK,
-            self.Type.PLACEMENT_GROUP,
-            self.Type.IMAGE,
-            self.Type.LOCATION,
-            self.Type.DATACENTER,
-            self.Type.SERVER_TYPE,
-            self.Type.ISO,
-            self.Type.SSH_KEY,
-            self.Type.LOAD_BALANCER_TYPE,
-            self.Type.ZONE,
-            self.Type.RRSET,
-            self.Type.ACTION,
-            self.Type.AWS_CLOUDWATCH_ALARM,
-            self.Type.AWS_CLOUDWATCH_METRIC,
-            self.Type.AWS_LOG_GROUP,
-            self.Type.AWS_ECR_REPOSITORY,
-            self.Type.AWS_ECR_IMAGE,
-            self.Type.AWS_ECS_TASK_DEFINITION,
-            self.Type.AWS_ECS_DEPLOYMENT,
-            self.Type.AWS_EKS_CLUSTER,
-            self.Type.AWS_EKS_NODE_GROUP,
-            self.Type.AWS_EKS_ADDON,
-            self.Type.AWS_EKS_FARGATE_PROFILE,
-            self.Type.AWS_APPRUNNER_SERVICE,
-            self.Type.AWS_APPRUNNER_DEPLOYMENT,
-            self.Type.AWS_ROUTE53_ZONE,
-            self.Type.AWS_ROUTE53_RECORD,
-            self.Type.AWS_CLOUDFRONT_DISTRIBUTION,
-            self.Type.AWS_CLOUDFRONT_ORIGIN_ACCESS_CONTROL,
-            self.Type.AWS_WAF_WEB_ACL,
-            self.Type.AWS_GLOBAL_ACCELERATOR,
-            self.Type.AWS_BACKUP_VAULT,
-            self.Type.AWS_BACKUP_PLAN,
-            self.Type.AWS_BACKUP_RECOVERY_POINT,
-            self.Type.AWS_BACKUP_JOB,
-            self.Type.AWS_BACKUP_COPY_JOB,
-            self.Type.VPC,
-            self.Type.SUBNET,
-            self.Type.ROUTE_TABLE,
-            self.Type.INTERNET_GATEWAY,
-            self.Type.VPC_PEERING,
-            self.Type.NAT_GATEWAY,
-            self.Type.NETWORK_ACL,
-            self.Type.NETWORK_INTERFACE,
-            self.Type.TRANSIT_GATEWAY_ATTACHMENT,
-            self.Type.VPN_CONNECTION,
-            self.Type.FLOW_LOG,
-            self.Type.AUTO_SCALING_GROUP,
-            self.Type.LAUNCH_TEMPLATE,
-            self.Type.AMI,
-            self.Type.EBS_ATTACHMENT,
-            self.Type.DOMAIN,
-            self.Type.DNS_RECORD,
-            self.Type.CDN_ENDPOINT,
-            self.Type.CERTIFICATE,
-            self.Type.LIGHTSAIL_INSTANCE,
-            self.Type.LIGHTSAIL_DISK,
-            self.Type.LIGHTSAIL_INSTANCE_SNAPSHOT,
-            self.Type.LIGHTSAIL_DISK_SNAPSHOT,
-            self.Type.LIGHTSAIL_STATIC_IP,
-            self.Type.LIGHTSAIL_DATABASE,
-            self.Type.LIGHTSAIL_DATABASE_SNAPSHOT,
-            self.Type.LIGHTSAIL_LOAD_BALANCER,
-            self.Type.LIGHTSAIL_CERTIFICATE,
-            self.Type.LIGHTSAIL_BUCKET,
-            self.Type.LIGHTSAIL_DISTRIBUTION,
-            self.Type.LIGHTSAIL_DOMAIN,
-            self.Type.LIGHTSAIL_DNS_RECORD,
-            self.Type.LIGHTSAIL_CONTAINER_SERVICE,
-            self.Type.LIGHTSAIL_ALARM,
-            self.Type.LIGHTSAIL_OPERATION,
-            self.Type.LIGHTSAIL_AUTO_SNAPSHOT,
-        ]:
-            if self.monitoring == self.Monitoring.ACTIVE:
-                try:
-                    schedules.asset_schedule_create(self)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not create status check schedule for asset {self.key}: {e}. "
-                        f"Schedules can be recreated with 'python manage.py create_all_cloud_schedules --confirm'."
-                    )
-            # When it's new asset then add owner email to notification_emails
-            if self.owner_email not in self.notification_emails:
-                self.notification_emails.append(self.owner_email)
-                self.save()
-                return
-        elif monitoring_changed:
-            # Check if monitoring status has changed to NO_LONGER_EXISTS
-            if self.monitoring == self.Monitoring.NO_LONGER_EXISTS:
-                schedules.asset_schedule_delete(self)
-            else:
-                # ACTIVE/DISABLED flip: refresh the task's enabled state
-                try:
+        if is_new or monitoring_changed:
+            try:
+                if (
+                    self.monitoring == self.Monitoring.NO_LONGER_EXISTS
+                    or not self.monitoring_supported
+                ):
+                    schedules.asset_schedule_delete(self)
+                else:
                     schedules.asset_schedule_update(self)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not update status check schedule for asset {self.key}: {e}. "
-                        f"Schedules can be recreated with 'python manage.py create_all_cloud_schedules --confirm'."
-                    )
+            except Exception as error:
+                logger.warning(
+                    "Could not reconcile the status-check schedule for asset %s (%s). "
+                    "Schedules can be recreated with "
+                    "'python manage.py create_all_cloud_schedules --confirm'.",
+                    self.key,
+                    type(error).__name__,
+                )
 
     def delete(self, *args, **kwargs):
         """
@@ -633,9 +552,27 @@ class UtilAsset(TimeStampedModel):
         """
         Update the notification email list for this asset
         """
-        # Remove duplicates
-        self.notification_emails = list(set(email_list))
-        self.save()
+        if not isinstance(email_list, list):
+            raise ValidationError("Email recipients must be provided as a list")
+        if len(email_list) > MAX_NOTIFICATION_EMAILS:
+            raise ValidationError(
+                f"No more than {MAX_NOTIFICATION_EMAILS} notification recipients are allowed"
+            )
+
+        normalized = []
+        seen = set()
+        for value in email_list:
+            if not isinstance(value, str):
+                raise ValidationError("Every notification recipient must be an email address")
+            email = value.strip()
+            validate_email(email)
+            identity = email.casefold()
+            if identity not in seen:
+                seen.add(identity)
+                normalized.append(email)
+
+        self.notification_emails = normalized
+        self.save(update_fields=['notification_emails'])
         return True
 
     def _get_status_timeline_entries(self, days=30):
@@ -689,8 +626,8 @@ class UtilAsset(TimeStampedModel):
         """
         try:
             return self._get_status_timeline_entries(days=days)
-        except Exception as e:
-            print(f"Error fetching status timeline for asset {self.name}: {str(e)}")
+        except Exception:
+            logger.exception("Error fetching status timeline for asset %s", self.pk)
             return []
 
     def get_status_timeline_paginated(self, page=1, page_size=10, days=30):
@@ -717,8 +654,8 @@ class UtilAsset(TimeStampedModel):
                 'page_size': page_size
             }
 
-        except Exception as e:
-            print(f"Error fetching paginated status timeline for asset {self.name}: {str(e)}")
+        except Exception:
+            logger.exception("Error fetching paginated status timeline for asset %s", self.pk)
             return {
                 'items': [],
                 'has_next': False,

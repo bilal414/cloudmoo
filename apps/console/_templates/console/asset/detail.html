@@ -366,10 +366,11 @@
 {% endblock %}
 
 {% block extra_scripts %}
+    {{ email_list|json_script:"asset-email-list" }}
     <script>
         function emailConfig() {
             return {
-                emails: {{ email_list|safe }},
+                emails: JSON.parse(document.getElementById('asset-email-list').textContent),
                 newEmail: '',
                 errorMessage: '',
                 successMessage: '',

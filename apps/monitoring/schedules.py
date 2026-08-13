@@ -86,6 +86,9 @@ def _cloud_schedule_enabled(cloud):
 
 def asset_schedule_create(asset):
     """Create (or fetch) the periodic status-check task for an asset."""
+    if not asset.monitoring_supported:
+        asset_schedule_delete(asset)
+        return None
     task, created = _upsert_periodic_task(
         name=f'asset-{asset.uuid}',
         task_name=ASSET_CHECK_TASK,
@@ -106,6 +109,9 @@ def asset_schedule_update(asset):
     """
     from apps.console.utils.models import UtilAsset
 
+    if not asset.monitoring_supported:
+        asset_schedule_delete(asset)
+        return None
     enabled = asset.monitoring == UtilAsset.Monitoring.ACTIVE
     task, _created = _upsert_periodic_task(
         name=f'asset-{asset.uuid}',

@@ -237,6 +237,9 @@ envVarGroups:
         value: "https://"
       - key: HTTPS_ENABLED
         value: "true"
+      - key: RATE_LIMIT_TRUST_X_FORWARDED_FOR
+        # Render's edge proxy supplies the canonical client-address header.
+        value: "true"
       - key: REGISTRATION_OPEN
         # Keep the first-run sign-up available. Disable it after the instance
         # owner has created and verified the initial account.

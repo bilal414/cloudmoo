@@ -58,6 +58,11 @@
       "value": "true",
       "required": false
     },
+    "RATE_LIMIT_TRUST_X_FORWARDED_FOR": {
+      "description": "Trust Heroku's router-supplied client address for authentication throttling.",
+      "value": "true",
+      "required": false
+    },
     "REGISTRATION_OPEN": {
       "description": "Leave true for the first account, then set false after the instance owner has verified their account.",
       "value": "true",

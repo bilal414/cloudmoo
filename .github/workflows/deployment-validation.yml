@@ -1,5 +1,8 @@
 name: Deployment manifests
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -39,6 +42,12 @@ jobs:
 
       - name: Build the production image
         run: docker build --pull=false --tag cloudmoo:ci .
+
+      - name: Validate nginx configuration
+        run: >-
+          docker run --rm --entrypoint /bin/sh cloudmoo:ci -c
+          'sed "s/__PORT__/8080/" /code/.nginx/default_80.conf
+          > /etc/nginx/sites-available/default && nginx -t'
 
       - name: Validate the Compose graph
         run: |

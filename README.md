@@ -210,15 +210,6 @@ provider's cloud-init/user-data field. The quick-start installer exposes HTTP
 on port 8000; put the VM behind a TLS reverse proxy before exposing it to the
 public internet, and pin `--branch` to a release tag for reproducible installs.
 
-### Marketing website
-
-`website/` is a static site with no build step. Deploy it on Cloudflare Pages
-with output directory `website` and no build command, or from the CLI:
-
-```bash
-npx wrangler pages deploy website
-```
-
 ## Configuration
 
 All configuration is via environment variables or `.env` — see the fully
@@ -230,6 +221,10 @@ documented [`.env.example`](.env.example). Highlights:
 | `DJANGO_DEBUG` | Debug mode — `false` in production | `false` |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames | — |
 | `HTTPS_ENABLED` | Secure cookies, HSTS, SSL redirect | `false` |
+| `DB_CONN_MAX_AGE` | Persistent PostgreSQL connection lifetime in seconds | `0` in debug / `60` in production |
+| `DB_CONNECT_TIMEOUT` | PostgreSQL connection timeout in seconds | driver default |
+| `DB_SSLMODE` | Optional PostgreSQL TLS mode | driver default |
+| `RATE_LIMIT_TRUST_X_FORWARDED_FOR` | Trust a controlled proxy's client-address header for login throttling | `false` |
 | `REGISTRATION_OPEN` | Allow public sign-ups | `true` |
 | `EMAIL_BACKEND` | Any Django email backend | console (dev) / SMTP |
 | `DATABASE_URL` | Optional; overrides the `DB_*` settings (`DB_SSLMODE` optional) | — |
@@ -257,9 +252,11 @@ python manage.py setup_test_accounts --dry-run
 python manage.py test
 ```
 
-Connection tests under `tests/` use the dummy credentials in
-`tests/test_accounts.json`; point them at real credentials (locally only,
-never commit them) to verify provider integrations end-to-end.
+The default suite is mocked and never creates provider resources. Live E2E
+harnesses are separate, explicit commands and require credentials through
+environment variables or an ignored local configuration file. See
+[`tests/README.md`](tests/README.md); never place real credentials in the
+tracked `tests/test_accounts.json` fixture.
 
 ## Project Structure
 
@@ -273,7 +270,6 @@ apps/
   management/         Management commands
   _migrations/        Consolidated migrations (single 'apps' module)
 tests/                Provider connection tests + fixtures
-website/              Marketing site (static, for Cloudflare Pages)
 deploy/               Railway service configs + cloud-init user data
 install.sh            VPS installer
 render.yaml           Render Blueprint
