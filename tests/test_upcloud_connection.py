@@ -163,12 +163,13 @@ class UpCloudConnectionTestCase(CloudTestMixin, TestCase):
 
         expected_token = {
             'username': account_config['username'],
-            'password': account_config['password']
+            'password': account_config['password'],
+            'api_token': '',
         }
         
         self.assertEqual(upcloud_account.access_token, expected_token)
 
-    def test_auth_token_generation(self):
+    def test_auth_headers_basic(self):
         account_config = self.get_test_account('upcloud', 'valid')
         
         upcloud_account = CoreUpCloudAccount.objects.create(
@@ -178,13 +179,28 @@ class UpCloudConnectionTestCase(CloudTestMixin, TestCase):
             password=account_config['password']
         )
 
-        auth_token = upcloud_account._get_auth_token()
-        
-        # Verify the token is properly base64 encoded
+        headers = upcloud_account._auth_headers()
+
+        # Verify the Basic credential is properly base64 encoded
         import base64
-        decoded = base64.b64decode(auth_token).decode()
+        decoded = base64.b64decode(headers['Authorization'].removeprefix('Basic ')).decode()
         expected_decoded = f"{account_config['username']}:{account_config['password']}"
         self.assertEqual(decoded, expected_decoded)
+
+    def test_auth_headers_bearer_with_api_token(self):
+        upcloud_account = CoreUpCloudAccount.objects.create(
+            cloud=self.cloud,
+            name='Token Account',
+            api_token='ucat_test-token-123'
+        )
+
+        headers = upcloud_account._auth_headers()
+
+        self.assertEqual(headers['Authorization'], 'Bearer ucat_test-token-123')
+        self.assertEqual(
+            upcloud_account.access_token,
+            {'username': '', 'password': '', 'api_token': 'ucat_test-token-123'},
+        )
 
     @skip_if_no_real_credentials('upcloud')
     def test_real_api_connection(self):
@@ -236,3 +252,46 @@ class UpCloudConnectionTestCase(CloudTestMixin, TestCase):
 
         result = upcloud_account.validate()
         self.assertFalse(result)
+
+
+class UpCloudCheckAuthTestCase(TestCase):
+    """Status checks authenticate with Bearer when an API token is present."""
+
+    @patch('apps.monitoring.checks.upcloud.requests.get')
+    def test_server_check_uses_bearer_for_api_token(self, mock_get):
+        from apps.monitoring.checks.upcloud import check_upcloud_server_status
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {'server': {'state': 'started'}}
+        mock_get.return_value = response
+
+        status, _metadata = check_upcloud_server_status(
+            'uuid-1',
+            {'username': '', 'password': '', 'api_token': 'ucat_check-token'},
+        )
+
+        self.assertEqual(status, 'started')
+        self.assertEqual(
+            mock_get.call_args.kwargs['headers']['Authorization'],
+            'Bearer ucat_check-token',
+        )
+
+    @patch('apps.monitoring.checks.upcloud.requests.get')
+    def test_volume_check_uses_basic_without_api_token(self, mock_get):
+        from apps.monitoring.checks.upcloud import check_upcloud_volume_status
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {'storage': {'state': 'online'}}
+        mock_get.return_value = response
+
+        status, _metadata = check_upcloud_volume_status(
+            'uuid-2',
+            {'username': 'user', 'password': 'pass', 'api_token': ''},
+        )
+
+        self.assertEqual(status, 'online')
+        self.assertTrue(
+            mock_get.call_args.kwargs['headers']['Authorization'].startswith('Basic ')
+        )

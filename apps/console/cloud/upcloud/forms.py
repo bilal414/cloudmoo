@@ -22,7 +22,7 @@ class UpCloudConnectForm(forms.Form):
             'placeholder': 'Enter your UpCloud username'
         }),
         max_length=255,
-        required=True
+        required=False
     )
 
     password = forms.CharField(
@@ -31,7 +31,17 @@ class UpCloudConnectForm(forms.Form):
             'placeholder': 'Enter your UpCloud password'
         }),
         max_length=255,
-        required=True
+        required=False
+    )
+
+    api_token = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none',
+            'placeholder': 'Optional: UpCloud API token (ucat_...)'
+        }),
+        max_length=255,
+        required=False,
+        help_text='Optional: preferred over username/password. Generate one in the UpCloud hub.'
     )
 
     def __init__(self, *args, **kwargs):
@@ -51,10 +61,10 @@ class UpCloudConnectForm(forms.Form):
         return account_name
 
     def clean_username(self):
-        username = self.cleaned_data['username']
+        username = self.cleaned_data.get('username', '')
 
-        # Check if access token already exists
-        if CoreUpCloudAccount.objects.filter(
+        # Check if username already exists (only relevant for Basic auth)
+        if username and CoreUpCloudAccount.objects.filter(
                 cloud__account=self.user.member.active_account,
                 username=username
         ).exists():
@@ -66,15 +76,30 @@ class UpCloudConnectForm(forms.Form):
         cleaned_data = super().clean()
         username = cleaned_data.get('username')
         password = cleaned_data.get('password')
+        api_token = cleaned_data.get('api_token')
 
-        if username and password:
-            auth_token = base64.b64encode(f"{username}:{password}".encode()).decode()
+        if not api_token and not (username and password):
+            raise ValidationError(
+                "Enter an UpCloud API token, or both a username and a password."
+            )
+        if api_token:
             headers = {
-                'Authorization': f'Basic {auth_token}',
-                'Content-Type': 'application/json'
+                'Authorization': f'Bearer {api_token}',
+                'Content-Type': 'application/json',
             }
+        else:
+            basic = base64.b64encode(f"{username}:{password}".encode()).decode()
+            headers = {
+                'Authorization': f'Basic {basic}',
+                'Content-Type': 'application/json',
+            }
+        try:
             response = requests.get('https://api.upcloud.com/1.3/account', headers=headers, timeout=10)
-            if response.status_code != 200:
-                raise ValidationError("Invalid UpCloud credentials. Please check and try again.")
+        except requests.RequestException:
+            raise ValidationError(
+                "Could not validate UpCloud credentials. Please check your internet connection."
+            )
+        if response.status_code != 200:
+            raise ValidationError("Invalid UpCloud credentials. Please check and try again.")
 
         return cleaned_data

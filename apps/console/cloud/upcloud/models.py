@@ -11,8 +11,11 @@ from django.utils import timezone
 
 class CoreUpCloudAccount(UtilCloud):
     cloud = models.ForeignKey(CoreCloud, on_delete=models.CASCADE, related_name="upcloud")
-    username = models.CharField(max_length=255)
-    password = models.CharField(max_length=255)
+    username = models.CharField(max_length=255, blank=True, default='')
+    password = models.CharField(max_length=255, blank=True, default='')
+    # UpCloud API token (ucat_…). Preferred over legacy username/password
+    # Basic auth; the hub issues tokens for new accounts.
+    api_token = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = "core_upcloud_account"
@@ -22,15 +25,23 @@ class CoreUpCloudAccount(UtilCloud):
 
     @property
     def access_token(self):
-        return {'username': self.username, 'password': self.password}
+        return {'username': self.username, 'password': self.password, 'api_token': self.api_token}
+
+    def _auth_headers(self):
+        import base64
+        if self.api_token:
+            authorization = f'Bearer {self.api_token}'
+        else:
+            basic = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            authorization = f'Basic {basic}'
+        return {
+            'Authorization': authorization,
+            'Content-Type': 'application/json',
+        }
 
     def validate(self):
         try:
-            headers = {
-                'Authorization': f'Basic {self._get_auth_token()}',
-                'Content-Type': 'application/json'
-            }
-            response = requests.get('https://api.upcloud.com/1.3/account', headers=headers, timeout=10)
+            response = requests.get('https://api.upcloud.com/1.3/account', headers=self._auth_headers(), timeout=10)
             return validate_provider_response(response, 'UpCloud')
         except CloudValidationTransientError:
             raise
@@ -39,10 +50,6 @@ class CoreUpCloudAccount(UtilCloud):
                 'UpCloud validation temporarily unavailable'
             ) from error
 
-    def _get_auth_token(self):
-        import base64
-        return base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-
     def sync_assets(self):
         self.sync_servers()
         self.sync_volumes()
@@ -50,12 +57,8 @@ class CoreUpCloudAccount(UtilCloud):
         self.save()
 
     def _make_api_call(self, endpoint):
-        headers = {
-            'Authorization': f'Basic {self._get_auth_token()}',
-            'Content-Type': 'application/json'
-        }
         url = f'https://api.upcloud.com/1.3/{endpoint}'
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=self._auth_headers(), timeout=15)
         response.raise_for_status()
         return response.json()
 

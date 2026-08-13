@@ -23,8 +23,9 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
                 upcloud_account = self.create_account(
                     user=request.user,
                     account_name=form.cleaned_data['account_name'],
-                    username=form.cleaned_data['username'],
-                    password=form.cleaned_data['password']
+                    username=form.cleaned_data.get('username', ''),
+                    password=form.cleaned_data.get('password', ''),
+                    api_token=form.cleaned_data.get('api_token', ''),
                 )
                 upcloud_account.cloud.sync_assets()
                 messages.success(request, 'UpCloud account connected successfully!')
@@ -33,7 +34,7 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
                 messages.error(request, f'Error connecting UpCloud account: {str(e)}')
         return render(request, self.template_name, {'form': form})
 
-    def create_account(self, user, account_name, username, password):
+    def create_account(self, user, account_name, username, password, api_token=''):
         # Get or create CoreCloud
         core_cloud, _ = CoreCloud.objects.get_or_create(
             account=user.member.active_account,
@@ -45,6 +46,7 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
             cloud=core_cloud,
             username=username,
             password=password,
+            api_token=api_token,
             name=account_name,
             status='active',
             last_synced=timezone.now()

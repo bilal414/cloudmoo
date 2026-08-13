@@ -5,19 +5,24 @@ import requests
 from apps.monitoring.checks.base import REQUEST_TIMEOUT_SECONDS, classify_http_error
 
 
+def _auth_headers(credentials):
+    if credentials.get('api_token'):
+        authorization = f"Bearer {credentials['api_token']}"
+    else:
+        username = credentials['username']
+        password = credentials['password']
+        basic = base64.b64encode(f"{username}:{password}".encode()).decode()
+        authorization = f'Basic {basic}'
+    return {
+        'Authorization': authorization,
+        'Content-Type': 'application/json',
+    }
+
+
 def check_upcloud_server_status(unique_id, credentials):
     """Check UpCloud server status"""
     try:
-        # Parse credentials
-        username = credentials['username']
-        password = credentials['password']
-
-        # Create auth header
-        auth_token = base64.b64encode(f"{username}:{password}".encode()).decode()
-        headers = {
-            'Authorization': f'Basic {auth_token}',
-            'Content-Type': 'application/json'
-        }
+        headers = _auth_headers(credentials)
 
         # Get server details
         url = f'https://api.upcloud.com/1.3/server/{unique_id}'
@@ -41,16 +46,7 @@ def check_upcloud_server_status(unique_id, credentials):
 def check_upcloud_volume_status(unique_id, credentials):
     """Check UpCloud volume status"""
     try:
-        # Parse credentials
-        username = credentials['username']
-        password = credentials['password']
-
-        # Create auth header
-        auth_token = base64.b64encode(f"{username}:{password}".encode()).decode()
-        headers = {
-            'Authorization': f'Basic {auth_token}',
-            'Content-Type': 'application/json'
-        }
+        headers = _auth_headers(credentials)
 
         # Get volume details
         url = f'https://api.upcloud.com/1.3/storage/{unique_id}'
