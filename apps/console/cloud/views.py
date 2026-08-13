@@ -247,7 +247,7 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
         provider_account = cloud.provider_account
         counts = {}
 
-        for asset_type, _canonical_type in CoreCloud.ASSET_RELATIONS:
+        for asset_type, _canonical_type in cloud._asset_relations_for_provider():
             if hasattr(provider_account, asset_type):
                 asset_manager = getattr(provider_account, asset_type)
                 counts[asset_type] = {
