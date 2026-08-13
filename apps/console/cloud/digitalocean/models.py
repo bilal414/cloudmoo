@@ -149,13 +149,17 @@ class CoreDigitalOceanAccount(UtilCloud):
                 allow_null_empty
                 and isinstance(data, dict)
                 and collection is None
-                and isinstance(data.get('meta'), dict)
-                and data['meta'].get('total') == 0
             ):
-                # The live VPC NAT gateway endpoint currently returns a
-                # present-but-null collection for an empty account. Treat it
-                # as empty only when the provider also confirms total=0.
-                collection = []
+                meta = data.get('meta')
+                meta_confirms_empty = isinstance(meta, dict) and meta.get('total') == 0
+                bare_null = 'meta' not in data and 'links' not in data
+                if meta_confirms_empty or bare_null:
+                    # The live VPC NAT gateway endpoint returns a
+                    # present-but-null collection alongside meta total=0 for an
+                    # empty account, and the databases endpoint answers a bare
+                    # {"databases": null}. Treat both as confirmed-empty, but
+                    # keep rejecting unexplained nulls for other endpoints.
+                    collection = []
             if collection is None:
                 all_items.extend(require_inventory_list(data, [collection_key], 'DigitalOcean'))
             elif isinstance(collection, list):
@@ -228,8 +232,13 @@ class CoreDigitalOceanAccount(UtilCloud):
         identifier_key='id',
         name_key='name',
         name_getter=None,
+        allow_null_empty=False,
     ):
-        items = self._paginate_api_call(endpoint, collection_key=collection_key)
+        items = self._paginate_api_call(
+            endpoint,
+            collection_key=collection_key,
+            allow_null_empty=allow_null_empty,
+        )
         current_ids = []
 
         for item in items:
@@ -370,6 +379,8 @@ class CoreDigitalOceanAccount(UtilCloud):
             CoreDigitalOceanDatabase,
             'databases',
             CoreDigitalOceanDatabase.Type.DATABASE,
+            # Accounts without database clusters get a bare null collection.
+            allow_null_empty=True,
         )
 
     def sync_volumes(self):
@@ -424,6 +435,9 @@ class CoreDigitalOceanAccount(UtilCloud):
             CoreDigitalOceanApp,
             'apps',
             CoreDigitalOceanApp.Type.APP_PLATFORM,
+            # Accounts without App Platform apps omit the collection entirely
+            # and answer only {"meta": {"total": 0}}.
+            allow_null_empty=True,
             name_getter=lambda item, identifier: (
                 item.get('spec', {}).get('name')
                 if isinstance(item.get('spec'), dict)
@@ -432,11 +446,21 @@ class CoreDigitalOceanAccount(UtilCloud):
         )
 
     def sync_container_registries(self):
-        self._sync_collection(
+        # DigitalOcean exposes a single registry per account at /v2/registry;
+        # the endpoint answers 404 when the account has no registry.
+        try:
+            data = self._make_api_call('registry')
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code == 404:
+                data = {}
+            else:
+                raise
+        registry = data.get('registry') if isinstance(data, dict) else None
+        items = [registry] if isinstance(registry, dict) else []
+        self._sync_items(
             CoreDigitalOceanContainerRegistry,
-            'registries',
+            items,
             CoreDigitalOceanContainerRegistry.Type.CONTAINER_REGISTRY,
-            collection_key='registries',
             identifier_key='name',
         )
 

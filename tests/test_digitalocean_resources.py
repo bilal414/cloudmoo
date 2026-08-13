@@ -1,6 +1,7 @@
 from datetime import datetime, timezone as dt_timezone
 from unittest.mock import Mock, patch
 
+import requests
 from botocore.exceptions import ClientError
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -103,7 +104,6 @@ class DigitalOceanResourceFixtureTestCase(TestCase):
             'firewalls': [{'id': 'fw-1', 'name': 'web-firewall', 'status': 'succeeded'}],
             'load_balancers': [{'id': 'lb-1', 'name': 'web-lb', 'status': 'active'}],
             'apps': [{'id': 'app-1', 'spec': {'name': 'web-app', 'region': 'nyc'}}],
-            'registries': [{'name': 'registry-1', 'region': 'nyc3'}],
             'kubernetes/clusters': [{
                 'id': 'cluster-1',
                 'name': 'production',
@@ -148,7 +148,12 @@ class DigitalOceanResourceFixtureTestCase(TestCase):
                 self.assertTrue(kwargs.get('allow_null_empty'))
             return inventory[endpoint]
 
-        with patch.object(self.do_account, '_paginate_api_call', side_effect=fake_paginate):
+        with patch.object(self.do_account, '_paginate_api_call', side_effect=fake_paginate), \
+                patch.object(
+                    self.do_account,
+                    '_make_api_call',
+                    return_value={'registry': {'name': 'registry-1', 'region': 'nyc3'}},
+                ):
             self.do_account.sync_databases()
             self.do_account.sync_volumes()
             self.do_account.sync_snapshots()
@@ -518,3 +523,110 @@ class DigitalOceanResourceCheckTestCase(TestCase):
         ):
             with self.subTest(asset_type=asset_type):
                 self.assertTrue(callable(get_check_function('digitalocean', asset_type)))
+
+
+class DigitalOceanEmptyAccountSyncTestCase(TestCase):
+    """Empty-account response shapes seen against the live DigitalOcean API.
+
+    The databases endpoint answers a bare {"databases": null}, App Platform
+    omits the collection and answers only meta total=0, and /v2/registry is
+    404 when the account has no registry. None of these may abort the sync.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='empty-account-user',
+            email='empty-account@example.com',
+            password='testpass123',
+        )
+        self.account = CoreAccount.objects.create(
+            name='Empty Account Test',
+            status=CoreAccount.Status.ACTIVE,
+            owner=self.user,
+        )
+        member = CoreMember.objects.create(user=self.user, active_account=self.account)
+        CoreAccountMembership.objects.create(
+            account=self.account,
+            member=member,
+            role=CoreAccountMembership.Role.OWNER,
+        )
+        self.provider, _ = CoreCloudServiceProvider.objects.get_or_create(
+            code='digitalocean',
+            defaults={
+                'name': 'DigitalOcean',
+                'status': CoreCloudServiceProvider.Status.ACTIVE,
+            },
+        )
+        self.cloud = CoreCloud.objects.create(
+            account=self.account,
+            provider=self.provider,
+            status=CoreCloud.Status.ACTIVE,
+        )
+        self.do_account = CoreDigitalOceanAccount.objects.create(
+            cloud=self.cloud,
+            name='Empty DO Account',
+            access_token='test-token',
+        )
+
+    @staticmethod
+    def _response(payload):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = payload
+        return response
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_databases_bare_null_syncs_empty(self, mock_get, _schedule_create):
+        stale = CoreDigitalOceanDatabase.objects.create(
+            owner=self.do_account,
+            unique_id='stale-db',
+            name='stale-db',
+            type=UtilAsset.Type.DATABASE,
+            monitoring=UtilAsset.Monitoring.ACTIVE,
+        )
+        mock_get.return_value = self._response({'databases': None})
+
+        self.do_account.sync_databases()
+
+        stale.refresh_from_db()
+        self.assertEqual(stale.monitoring, UtilAsset.Monitoring.NO_LONGER_EXISTS)
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_apps_missing_collection_with_zero_total_syncs_empty(self, mock_get, _schedule_create):
+        mock_get.return_value = self._response({'meta': {'total': 0}})
+
+        self.do_account.sync_apps()
+
+        self.assertEqual(CoreDigitalOceanApp.objects.count(), 0)
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_unexplained_null_still_raises_without_opt_in(self, mock_get, _schedule_create):
+        mock_get.return_value = self._response({'databases': None})
+
+        with self.assertRaises(CloudInventoryTransientError):
+            self.do_account._paginate_api_call('databases', collection_key='databases')
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_registry_404_syncs_empty(self, mock_get, _schedule_create):
+        error = requests.HTTPError('not found')
+        error.response = Mock(status_code=404)
+        response = Mock()
+        response.raise_for_status.side_effect = error
+        mock_get.return_value = response
+
+        self.do_account.sync_container_registries()
+
+        self.assertEqual(CoreDigitalOceanContainerRegistry.objects.count(), 0)
+
+    @patch('apps.monitoring.schedules.asset_schedule_create')
+    @patch('apps.console.cloud.digitalocean.models.requests.get')
+    def test_registry_single_object_is_wrapped(self, mock_get, _schedule_create):
+        mock_get.return_value = self._response({'registry': {'name': 'registry-1', 'region': 'nyc3'}})
+
+        self.do_account.sync_container_registries()
+
+        self.assertEqual(CoreDigitalOceanContainerRegistry.objects.get().unique_id, 'registry-1')
