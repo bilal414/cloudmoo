@@ -62,7 +62,7 @@ class VultrPlatformInventoryTests(SimpleTestCase):
     def test_registry_inventory_keeps_pull_summary_and_drops_credentials(self):
         client = FakeVultrClient(
             {
-                "registry": {
+                "registries": {
                     "registries": [
                         {
                             "id": "registry-1",

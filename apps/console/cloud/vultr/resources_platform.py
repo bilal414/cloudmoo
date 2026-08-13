@@ -49,7 +49,7 @@ VULTR_GET_ENDPOINTS = frozenset(
         "object-storage",
         "object-storage/clusters",
         "object-storage/tiers",
-        "registry",
+        "registries",
         "inference",
         "plans",
         "regions",
@@ -154,7 +154,7 @@ class CoreVultrStorageTier(CoreVultrResource):
 class CoreVultrContainerRegistry(CoreVultrResource):
     provider_type = "vultr_container_registry"
     asset_type = UtilAsset.Type.CONTAINER_REGISTRY
-    api_endpoint = "registry"
+    api_endpoint = "registries"
 
     class Meta:
         db_table = "core_vultr_container_registry"
@@ -302,7 +302,7 @@ RESOURCE_SPECS = {
     ),
     "container_registry": VultrResourceSpec(
         "container_registry",
-        "registry",
+        "registries",
         "registries",
         CoreVultrContainerRegistry,
         name_fields=("label", "name", "hostname", "domain", "ip"),
