@@ -45,6 +45,35 @@
                             <p class="mt-2 text-sm ">{{ form.access_token.help_text }}</p>
                         {% endif %}
                     </div>
+
+                    <div class="mt-6 border-t border-gray-200 pt-4">
+                        <p class="text-sm font-medium text-gray-900">Optional Object Storage access</p>
+                        <p class="mt-1 text-xs text-gray-500">The Hetzner API token does not enumerate Object Storage buckets. Add an S3-compatible key to inventory and monitor them.</p>
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="{{ form.object_storage_access_key.id_for_label }}" class="block text-sm text-gray-700">
+                            Object Storage Access Key
+                        </label>
+                        <div class="mt-1">{{ form.object_storage_access_key }}</div>
+                        {% if form.object_storage_access_key.help_text %}<p class="mt-2 text-sm text-gray-500">{{ form.object_storage_access_key.help_text }}</p>{% endif %}
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="{{ form.object_storage_secret_key.id_for_label }}" class="block text-sm text-gray-700">
+                            Object Storage Secret Key
+                        </label>
+                        <div class="mt-1">{{ form.object_storage_secret_key }}</div>
+                        {% if form.object_storage_secret_key.help_text %}<p class="mt-2 text-sm text-gray-500">{{ form.object_storage_secret_key.help_text }}</p>{% endif %}
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="{{ form.object_storage_region.id_for_label }}" class="block text-sm text-gray-700">
+                            Object Storage Region
+                        </label>
+                        <div class="mt-1">{{ form.object_storage_region }}</div>
+                        {% if form.object_storage_region.help_text %}<p class="mt-2 text-sm text-gray-500">{{ form.object_storage_region.help_text }}</p>{% endif %}
+                    </div>
                 </div>
 
                 {% if form.non_field_errors or form.account_name.errors or form.access_token.errors %}
