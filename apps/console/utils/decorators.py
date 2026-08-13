@@ -1,7 +1,30 @@
-from django.core.cache import cache
-from django.http import HttpResponseForbidden
-from functools import wraps
+import hashlib
+import ipaddress
 import time
+from functools import wraps
+
+from django.conf import settings
+from django.core.cache import cache
+from django.http import HttpResponse
+
+
+def _client_address(request):
+    """Return a validated client address without trusting spoofable headers."""
+    candidate = request.META.get("REMOTE_ADDR", "")
+    if settings.RATE_LIMIT_TRUST_X_FORWARDED_FOR:
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            candidate = forwarded.split(",", 1)[0].strip()
+
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return "unknown"
+
+
+def _rate_limit_key(key_prefix, request, window):
+    address_digest = hashlib.sha256(_client_address(request).encode()).hexdigest()[:24]
+    return f"rate-limit:{key_prefix}:{address_digest}:{window}"
 
 
 def rate_limit(key_prefix, limit=5, period=900):
@@ -16,28 +39,30 @@ def rate_limit(key_prefix, limit=5, period=900):
         @wraps(func)
         def wrapped(self, request, *args, **kwargs):
             if request.method == 'POST':
-                ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR'))
-                if ip:
-                    ip = ip.split(',')[0].strip()
+                now = time.time()
+                window = int(now // period)
+                attempts_key = _rate_limit_key(key_prefix, request, window)
+                timeout = max(1, int(period - (now % period)) + 1)
 
-                attempts_key = f"{key_prefix}_{ip}_attempts"
-                expires_key = f"{key_prefix}_{ip}_expires"
+                if cache.add(attempts_key, 1, timeout=timeout):
+                    attempts = 1
+                else:
+                    try:
+                        attempts = cache.incr(attempts_key)
+                    except ValueError:
+                        # The key may expire between add() and incr(). Start the
+                        # new window rather than turning authentication into a
+                        # server error.
+                        cache.set(attempts_key, 1, timeout=timeout)
+                        attempts = 1
 
-                attempts = cache.get(attempts_key, 0)
-                expires = cache.get(expires_key, time.time() + period)
-
-                if time.time() > expires:
-                    attempts = 0
-                    expires = time.time() + period
-
-                if attempts >= limit:
-                    remaining = int(expires - time.time())
-                    return HttpResponseForbidden(
-                        f"Too many attempts. Please try again in {remaining // 60} minutes."
+                if attempts > limit:
+                    response = HttpResponse(
+                        "Too many attempts. Please try again later.",
+                        status=429,
                     )
-
-                cache.set(attempts_key, attempts + 1, period)
-                cache.set(expires_key, expires, period)
+                    response["Retry-After"] = str(timeout)
+                    return response
 
             return func(self, request, *args, **kwargs)
 

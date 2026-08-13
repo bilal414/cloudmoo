@@ -1,6 +1,6 @@
-setuptools==82.0.1
-pip==26.1.1
-Django==6.0.5
+setuptools==84.0.0
+pip==26.2.1
+Django==6.0.8
 sqlparse==0.5.5
 tzdata==2026.2
 python-dotenv==1.2.2
@@ -9,10 +9,11 @@ requests==2.34.2
 boto3==1.43.13
 djangorestframework==3.17.1
 gunicorn==26.0.0
+whitenoise==6.12.0
 sentry-sdk==2.60.0
 django-ses==4.7.2
 django-model-utils==5.0.0
-Pillow==12.2.0
+Pillow==12.3.0
 pyotp==2.9.0
 qrcode==8.2
 pytz==2026.2

@@ -31,13 +31,18 @@ from apps.monitoring.email import (
     ensure_status_change_email_outbox,
     send_status_change_emails,
 )
+from apps.monitoring.locks import cloud_sync_lock
 from apps.monitoring.metadata import (
     compare_metadata,
     filter_metadata,
     redact_error_message,
     redact_sensitive_metadata,
 )
-from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
+from apps.monitoring.models import (
+    AssetMonitoringState,
+    AssetStatusEmail,
+    AssetStatusLog,
+)
 from apps.monitoring.timeline import calculate_status_timeline
 
 logger = logging.getLogger(__name__)
@@ -388,46 +393,106 @@ def run_cloud_sync(cloud):
     Returns a dict with ``success``, ``message``, ``status_changed``,
     ``current_status`` and ``last_synced``.
     """
+    cloud_pk = getattr(cloud, 'pk', None)
+    cloud_uuid = getattr(cloud, 'uuid', None)
     try:
-        with transaction.atomic():
-            cloud = CoreCloud.objects.select_for_update().get(pk=cloud.pk)
+        with cloud_sync_lock(cloud_uuid) as acquired:
+            if not acquired:
+                current = CoreCloud.objects.filter(pk=cloud_pk).only(
+                    'status', 'last_synced'
+                ).first()
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'message': 'A cloud inventory sync is already in progress',
+                    'status_changed': False,
+                    'current_status': current.status if current else None,
+                    'last_synced': current.last_synced if current else None,
+                }
 
-            # Store original status
+            cloud = CoreCloud.objects.select_related('provider').get(pk=cloud_pk)
             original_status = cloud.status
-            current_status = cloud.status
+            syncable_statuses = (
+                CoreCloud.Status.ACTIVE,
+                CoreCloud.Status.INVALID_AUTH,
+            )
+            if cloud.status not in syncable_statuses:
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'message': f'Cloud sync skipped while status is {cloud.status}',
+                    'status_changed': False,
+                    'current_status': cloud.status,
+                    'last_synced': cloud.last_synced,
+                }
 
-            # Validate cloud credentials
+            # Provider calls intentionally run outside a database transaction.
+            # Some full inventory passes take many minutes and must not hold a
+            # row lock or an open transaction for their entire duration.
             is_valid = cloud.validate()
 
-            if not is_valid and current_status == CoreCloud.Status.ACTIVE:
+            if not is_valid:
+                with transaction.atomic():
+                    current = CoreCloud.objects.select_for_update().get(pk=cloud_pk)
+                    if (
+                        current.status in syncable_statuses
+                        and current.status != CoreCloud.Status.INVALID_AUTH
+                    ):
+                        current.status = CoreCloud.Status.INVALID_AUTH
+                        current.save(update_fields=['status'])
+                    final_status = current.status
+                    last_synced = current.last_synced
+
+                # Also run this for an already-invalid cloud to repair any
+                # status-check schedules left behind by a prior interruption.
+                current.delete_all_asset_schedules()
+                return {
+                    'success': True,
+                    'message': f'Cloud credentials are invalid for {current.name}',
+                    'status_changed': original_status != final_status,
+                    'current_status': final_status,
+                    'last_synced': last_synced,
+                }
+
+            # Re-check state immediately before the expensive inventory pass.
+            # A pause made during validation should take effect without waiting
+            # for the provider sync to finish.
+            cloud.refresh_from_db(fields=['status', 'last_synced'])
+            if cloud.status not in syncable_statuses:
                 cloud.delete_all_asset_schedules()
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'message': f'Cloud sync skipped while status is {cloud.status}',
+                    'status_changed': original_status != cloud.status,
+                    'current_status': cloud.status,
+                    'last_synced': cloud.last_synced,
+                }
 
-                # Now update cloud status
-                cloud.status = CoreCloud.Status.INVALID_AUTH
-                cloud.save(update_fields=['status'])
+            cloud.sync_assets()
 
-            elif is_valid:
-                if current_status == CoreCloud.Status.INVALID_AUTH:
-                    # If previously invalid, now valid
-                    cloud.status = CoreCloud.Status.ACTIVE
-                    cloud.save(update_fields=['status'])
+            # Only recover INVALID_AUTH to ACTIVE. A user or administrator may
+            # have paused/suspended the cloud while the provider call ran; that
+            # newer state must win over this worker's stale in-memory object.
+            with transaction.atomic():
+                current = CoreCloud.objects.select_for_update().get(pk=cloud_pk)
+                if current.status == CoreCloud.Status.INVALID_AUTH:
+                    current.status = CoreCloud.Status.ACTIVE
+                    current.save(update_fields=['status'])
+                final_status = current.status
+                last_synced = current.last_synced
 
-                    # Create schedules after successful sync
-                    cloud.create_all_asset_schedules()
-
-                # Sync both an already-active cloud and one that just
-                # recovered from invalid credentials. The old flow restored
-                # schedules but waited for the next 15-minute beat tick before
-                # importing assets again.
-                if cloud.status == CoreCloud.Status.ACTIVE:
-                    cloud.sync_assets()
+            if final_status == CoreCloud.Status.ACTIVE:
+                current.create_all_asset_schedules()
+            else:
+                current.delete_all_asset_schedules()
 
             return {
                 'success': True,
-                'message': f'Successfully processed cloud {cloud.name}',
-                'status_changed': original_status != cloud.status,
-                'current_status': cloud.status,
-                'last_synced': cloud.last_synced,
+                'message': f'Successfully processed cloud {current.name}',
+                'status_changed': original_status != final_status,
+                'current_status': final_status,
+                'last_synced': last_synced,
             }
 
     except NotImplementedError:
@@ -444,7 +509,11 @@ def run_cloud_sync(cloud):
         # A timeout, rate limit, or provider outage is not an authentication
         # failure. Keep schedules and the current cloud state intact so the
         # retry can resume monitoring when the provider recovers.
-        logger.warning("Transient validation failure for cloud %s: %s", cloud.pk, e)
+        logger.warning(
+            "Transient validation failure for cloud %s: %s",
+            cloud.pk,
+            redact_error_message(e),
+        )
         return {
             'success': False,
             'retryable': True,
@@ -454,8 +523,23 @@ def run_cloud_sync(cloud):
             'last_synced': cloud.last_synced,
         }
 
+    except CoreCloud.DoesNotExist:
+        logger.info("Cloud %s was removed while its inventory sync was running", cloud_pk)
+        return {
+            'success': True,
+            'skipped': True,
+            'message': 'Cloud was removed before synchronization completed',
+            'status_changed': False,
+            'current_status': None,
+            'last_synced': None,
+        }
+
     except Exception as e:
-        logger.exception(f"Error processing cloud {getattr(cloud, 'pk', None)}: {str(e)}")
+        logger.exception(
+            "Error processing cloud %s (%s)",
+            cloud_pk,
+            type(e).__name__,
+        )
         return {
             'success': False,
             'message': f'Error processing cloud: {redact_error_message(e)}',

@@ -1,7 +1,8 @@
 import json
 import os
-from django.conf import settings
 from unittest.mock import Mock
+
+from django.conf import settings
 
 
 class TestAccountManager:
@@ -14,11 +15,16 @@ class TestAccountManager:
     @classmethod
     def load_config(cls, config_path=None):
         """Load test accounts configuration from JSON file"""
-        if cls._config and cls._config_path == config_path:
-            return cls._config
-
         if not config_path:
-            config_path = os.path.join(settings.BASE_DIR, 'tests', 'test_accounts.json')
+            config_path = os.environ.get('CLOUDMOO_TEST_CONFIG_PATH') or os.path.join(
+                settings.BASE_DIR,
+                'tests',
+                'test_accounts.json',
+            )
+        config_path = os.path.abspath(os.path.expanduser(config_path))
+
+        if cls._config is not None and cls._config_path == config_path:
+            return cls._config
         
         cls._config_path = config_path
         
@@ -245,9 +251,7 @@ def get_integration_test_data():
                 # Add basic validation to ensure it's not a placeholder
                 is_real = True
                 
-                if provider == 'digitalocean' and account['access_token'].startswith('dop_v1_your_test'):
-                    is_real = False
-                elif provider == 'aws' and account['access_key'] == 'AKIAIOSFODNN7EXAMPLE':
+                if provider == 'digitalocean' and account['access_token'].startswith('dop_v1_your_test') or provider == 'aws' and account['access_key'] == 'AKIAIOSFODNN7EXAMPLE':
                     is_real = False
                     
                 if is_real:

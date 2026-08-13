@@ -7,6 +7,7 @@ venv/
 
 # Environment & secrets
 .env
+tests/test_accounts.local.json
 *.pem
 *.key
 

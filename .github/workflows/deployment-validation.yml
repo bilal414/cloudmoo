@@ -1,0 +1,55 @@
+name: Deployment manifests
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install manifest validator
+        run: python -m pip install --disable-pip-version-check pyyaml
+
+      - name: Parse JSON and YAML deployment files
+        run: |
+          python -m json.tool app.json >/dev/null
+          for file in deploy/railway/*.json; do python -m json.tool "$file" >/dev/null; done
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          for filename in ("render.yaml", "heroku.yml", "docker-compose.yml", "deploy/cloud-init/cloudmoo.yaml"):
+              with Path(filename).open() as handle:
+                  yaml.safe_load(handle)
+          PY
+
+      - name: Check installer scripts
+        run: bash -n install.sh init.sh startup.sh
+
+      - name: Build the production image
+        run: docker build --pull=false --tag cloudmoo:ci .
+
+      - name: Validate nginx configuration
+        run: >-
+          docker run --rm --entrypoint /bin/sh cloudmoo:ci -c
+          'sed "s/__PORT__/8080/" /code/.nginx/default_80.conf
+          > /etc/nginx/sites-available/default && nginx -t'
+
+      - name: Validate the Compose graph
+        run: |
+          cp .env.example .env
+          docker compose config -q

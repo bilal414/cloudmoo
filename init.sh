@@ -16,6 +16,14 @@ if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
+# Heroku runs containers as a non-root dyno user, so it cannot write nginx's
+# system config or start a privileged service. WhiteNoise serves the static
+# files collected into the image, and Gunicorn binds directly to Heroku's port.
+if [ "$(id -u)" -ne 0 ]; then
+  HOME=/tmp exec gunicorn app_cloudmoo_com.wsgi:application \
+    --workers=4 --timeout=3600 --bind "0.0.0.0:${PORT:-8000}"
+fi
+
 # Web role (default).
 sed "s/__PORT__/${PORT:-80}/" /code/.nginx/default_80.conf > /etc/nginx/sites-available/default
 
