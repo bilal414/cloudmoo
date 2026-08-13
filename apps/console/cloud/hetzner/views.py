@@ -36,7 +36,7 @@ class ConnectHetznerView(LoginRequiredMixin, View):
                     object_storage_secret_key=form.cleaned_data.get('object_storage_secret_key', ''),
                     object_storage_region=form.cleaned_data.get('object_storage_region', ''),
                 )
-                hetzner_account.sync_assets()
+                hetzner_account.cloud.sync_assets()
                 messages.success(request, 'Hetzner account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception:

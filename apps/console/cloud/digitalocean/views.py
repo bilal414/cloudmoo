@@ -31,7 +31,7 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
                     spaces_secret_key=form.cleaned_data.get('spaces_secret_key', ''),
                     spaces_region=form.cleaned_data.get('spaces_region') or 'nyc3',
                 )
-                do_account.sync_assets()
+                do_account.cloud.sync_assets()
                 messages.success(request, 'DigitalOcean account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception as e:

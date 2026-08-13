@@ -26,7 +26,7 @@ class ConnectLinodeView(LoginRequiredMixin, View):
                     account_name=form.cleaned_data['account_name'],
                     access_token=form.cleaned_data['access_token']
                 )
-                linode_account.sync_assets()
+                linode_account.cloud.sync_assets()
                 messages.success(request, 'Linode account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception as e:

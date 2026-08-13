@@ -26,11 +26,11 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
                     username=form.cleaned_data['username'],
                     password=form.cleaned_data['password']
                 )
-                upcloud_account.sync_assets()
+                upcloud_account.cloud.sync_assets()
                 messages.success(request, 'UpCloud account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception as e:
-                messages.error(request, f'Error connecting Hetzner account: {str(e)}')
+                messages.error(request, f'Error connecting UpCloud account: {str(e)}')
         return render(request, self.template_name, {'form': form})
 
     def create_account(self, user, account_name, username, password):

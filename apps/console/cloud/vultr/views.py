@@ -26,7 +26,7 @@ class ConnectVultrView(LoginRequiredMixin, View):
                     account_name=form.cleaned_data['account_name'],
                     access_token=form.cleaned_data['access_token']
                 )
-                vultr_account.sync_assets()
+                vultr_account.cloud.sync_assets()
                 messages.success(request, 'Vultr account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception as e:

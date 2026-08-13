@@ -28,7 +28,7 @@ class ConnectAWSView(LoginRequiredMixin, View):
                     secret_key=form.cleaned_data['secret_key'],
                     region=form.cleaned_data['region']
                 )
-                aws_account.sync_assets()
+                aws_account.cloud.sync_assets()
                 messages.success(request, 'AWS account connected successfully!')
                 return redirect('console:cloud:list')
             except Exception as e:
