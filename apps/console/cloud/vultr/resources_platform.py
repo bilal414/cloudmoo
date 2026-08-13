@@ -326,7 +326,8 @@ RESOURCE_SPECS = {
     "inference": VultrResourceSpec(
         "inference",
         "inference",
-        "inference_endpoints",
+        # The live /v2/inference envelope is {"subscriptions": [...]}.
+        "subscriptions",
         CoreVultrInferenceEndpoint,
         name_fields=("label", "name", "hostname", "domain", "ip"),
     ),
