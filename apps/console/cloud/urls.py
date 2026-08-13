@@ -23,6 +23,7 @@ urlpatterns = [
                             path(r"", include("apps.console.cloud.aws.urls")),
                             path(r"", include("apps.console.cloud.upcloud.urls")),
                             path(r"", include("apps.console.cloud.linode.urls")),
+                            path(r"", include("apps.console.cloud.oracle.urls")),
                         ]
                     ),
                 ),

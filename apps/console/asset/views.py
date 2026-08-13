@@ -90,6 +90,7 @@ from apps.console.cloud.hetzner.models import CoreHetznerServer, CoreHetznerVolu
 from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.linode.models import CoreLinodeServer, CoreLinodeVolume
 from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
+from apps.console.cloud.oracle.models import CoreOracleInstance, CoreOracleVolume
 from apps.console.cloud.upcloud.models import CoreUpCloudServer, CoreUpCloudVolume
 from apps.console.cloud.vultr.integration import get_vultr_resource_models
 from apps.console.cloud.vultr.models import (
@@ -341,6 +342,10 @@ class AssetDetailView(DetailView):
             'linode': {
                 'server': CoreLinodeServer,
                 'volume': CoreLinodeVolume,
+            },
+            'oracle': {
+                'server': CoreOracleInstance,
+                'volume': CoreOracleVolume,
             },
         }
 

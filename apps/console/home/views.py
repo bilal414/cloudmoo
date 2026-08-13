@@ -37,6 +37,7 @@ from apps.console.cloud.aws.security_governance import AWS_SECURITY_GOVERNANCE_A
 from apps.console.cloud.aws.credentials_config import AWS_CREDENTIALS_CONFIG_ASSET_MODELS
 from apps.console.cloud.aws.account_operations import AWS_ACCOUNT_OPERATIONS_ASSET_MODELS
 from apps.console.cloud.linode.models import CoreLinodeVolume, CoreLinodeServer
+from apps.console.cloud.oracle.models import CoreOracleInstance, CoreOracleVolume
 from apps.console.cloud.models import CoreCloud
 from apps.console.cloud.digitalocean.models import (
     CoreDigitalOceanApp,
@@ -450,6 +451,23 @@ class IndexView(LoginRequiredMixin, TemplateView):
             monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
         ).values('owner__cloud').annotate(count=Count('id'))
         for item in linode_volume_counts:
+            cloud_asset_counts[item['owner__cloud']]['volumes'] += item['count']
+
+        # Update the counts for Oracle Cloud
+        oracle_counts = CoreOracleInstance.objects.filter(
+            owner__cloud__account=active_account
+        ).exclude(
+            monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
+        ).values('owner__cloud').annotate(count=Count('id'))
+        for item in oracle_counts:
+            cloud_asset_counts[item['owner__cloud']]['servers'] += item['count']
+
+        oracle_volume_counts = CoreOracleVolume.objects.filter(
+            owner__cloud__account=active_account
+        ).exclude(
+            monitoring=UtilAsset.Monitoring.NO_LONGER_EXISTS
+        ).values('owner__cloud').annotate(count=Count('id'))
+        for item in oracle_volume_counts:
             cloud_asset_counts[item['owner__cloud']]['volumes'] += item['count']
 
         # Calculate totals
