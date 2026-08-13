@@ -182,6 +182,10 @@ class AWSObservabilityInventoryTest(SimpleTestCase):
         self.assertEqual(result["counts"][ASSET_TYPE_LOG_GROUP], 1)
         self.assertEqual(len(result["errors"]), 3)
         self.assertEqual(self.operations.count("list_metrics"), 2)
+        # CloudWatch metric series are inventory-only: no per-minute checks.
+        self.assertTrue(all(row.monitoring == "disabled" for row in metric_manager.rows))
+        self.assertTrue(all(row.monitoring == "active" for row in alarm_manager.rows))
+        self.assertTrue(all(row.monitoring == "active" for row in log_manager.rows))
         self.assertEqual(self.operations.count("describe_alarms"), 2)
         self.assertEqual(self.operations.count("describe_log_groups"), 2)
 

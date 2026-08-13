@@ -61,6 +61,13 @@ OBSERVABILITY_ASSET_TYPES = (
     ASSET_TYPE_LOG_GROUP,
 )
 
+# CloudWatch metric series are telemetry dimensions, not lifecycle-monitorable
+# assets: a real account can hold tens of thousands, and a per-minute check on
+# each one would drown the monitoring engine and the CloudWatch API.  They are
+# inventoried (visible in the console) with monitoring DISABLED; a user can
+# still enable checks on individual series.
+INVENTORY_ONLY_ASSET_TYPES = frozenset({ASSET_TYPE_CLOUDWATCH_METRIC})
+
 # CloudWatch can contain very large metric inventories.  The paginator still
 # walks every normal response page, while these hard bounds prevent a broken
 # paginator or unexpectedly huge account from making a worker unbounded.
@@ -443,7 +450,11 @@ def _upsert_asset(model, account, region, record, asset_type):
             "name": record["name"][:100],
             "type": asset_type,
             "metadata": record["metadata"],
-            "monitoring": UtilAsset.Monitoring.ACTIVE,
+            "monitoring": (
+                UtilAsset.Monitoring.DISABLED
+                if asset_type in INVENTORY_ONLY_ASSET_TYPES
+                else UtilAsset.Monitoring.ACTIVE
+            ),
         },
     )
     asset.name = record["name"][:100]
