@@ -1,11 +1,11 @@
 # Heroku Container-stack process definitions. app.json provisions PostgreSQL
-# (heroku-postgresql:mini) and the RabbitMQ-only CloudAMQP Little Lemur add-on
+# (heroku-postgresql:essential-0) and the RabbitMQ-only CloudAMQP add-on
 # used by these processes.
 setup:
   addons:
-    - plan: heroku-postgresql:mini
+    - plan: heroku-postgresql:essential-0
       as: DATABASE
-    - plan: cloudamqp:lemur
+    - plan: cloudamqp
       as: CLOUDAMQP
 
 build:
@@ -18,9 +18,9 @@ release:
     - python manage.py migrate --noinput
 
 run:
-  # Heroku assigns $PORT to web dynos. The image's default web path (init.sh)
-  # renders the nginx config to listen on $PORT and proxies to gunicorn on
-  # 127.0.0.1:8000, so the same image serves Heroku web traffic unchanged.
+  # Heroku assigns $PORT to web dynos. init.sh detects the non-root Heroku
+  # runtime and runs Gunicorn directly on that port; WhiteNoise serves the
+  # static assets collected into the image.
   web:
     image: web
     command:

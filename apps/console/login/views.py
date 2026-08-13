@@ -1,18 +1,32 @@
-from django.conf import settings
+import logging
+
+from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
-from django.shortcuts import redirect, get_object_or_404
-from django.views.generic import FormView
+from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.urls import reverse_lazy
-from django.contrib import messages
 from django.utils import timezone
 from django.views import View
+from django.views.generic import FormView
 
-from .forms import LoginForm, PasswordResetRequestForm, PasswordResetConfirmForm, VerifyTwoFactorForm
 from ..member.models import CoreMember
 from ..utils.decorators import rate_limit
 from ..utils.email import EmailSender
-from django.template.loader import render_to_string
+from .forms import (
+    LoginForm,
+    PasswordResetConfirmForm,
+    PasswordResetRequestForm,
+    VerifyTwoFactorForm,
+)
+
+logger = logging.getLogger(__name__)
+PENDING_2FA_TIMEOUT_SECONDS = 300
+
+
+def _clear_pending_two_factor(session):
+    for key in ("pending_user_id", "two_factor_type", "pending_2fa_started_at"):
+        session.pop(key, None)
 
 
 class EmailVerificationMixin:
@@ -80,8 +94,10 @@ class LoginView(EmailVerificationMixin, FormView):
                         form.add_error(None, "TOTP not set up. Please contact administrator.")
                         return self.form_invalid(form)
 
+                    self.request.session.cycle_key()
                     self.request.session['pending_user_id'] = user.id
                     self.request.session['two_factor_type'] = 'app'
+                    self.request.session['pending_2fa_started_at'] = timezone.now().timestamp()
                     return redirect('console:verify-2fa')
 
                 login(self.request, user)
@@ -94,8 +110,9 @@ class LoginView(EmailVerificationMixin, FormView):
 
 
 class ResendVerificationView(EmailVerificationMixin, View):
-    http_method_names = ['post']
+    http_method_names = ('post',)
 
+    @rate_limit('resend_verification', limit=3, period=900)
     def post(self, request, *args, **kwargs):
         email = kwargs.get('email')
         try:
@@ -106,21 +123,20 @@ class ResendVerificationView(EmailVerificationMixin, View):
                     (timezone.now() - member.verification_token_created).total_seconds() > 86400:
                 member.generate_verification_token()
 
-            success, message = self.send_verification_email(member)
+            success, _message = self.send_verification_email(member)
 
-            if success:
-                messages.success(
-                    request,
-                    "Verification email has been resent. Please check your inbox."
-                )
-            else:
-                messages.error(
-                    request,
-                    "Failed to send verification email. Please try again later."
-                )
+            if not success:
+                logger.warning("Could not send an email-verification message")
 
         except CoreMember.DoesNotExist:
-            messages.error(request, "Email address not found.")
+            pass
+
+        # Use one response for found and unknown addresses to avoid account
+        # enumeration through this endpoint.
+        messages.success(
+            request,
+            "If an account exists with this email, a verification message will be sent."
+        )
 
         return redirect('console:login')
 
@@ -155,30 +171,24 @@ class PasswordResetRequestView(FormView):
             plain_message = render_to_string('console/email/password_reset.txt', context)
 
             email_sender = EmailSender()
-            success, message = email_sender.send_email(
+            success, _message = email_sender.send_email(
                 subject='Reset your CloudMoo password',
                 body_html=html_message,
                 body_text=plain_message,
                 recipient_list=[email]
             )
 
-            if success:
-                messages.success(
-                    self.request,
-                    "Password reset instructions have been sent to your email."
-                )
-            else:
-                messages.error(
-                    self.request,
-                    "Failed to send password reset email. Please try again later."
-                )
+            if not success:
+                logger.warning("Could not send a password-reset message")
 
         except CoreMember.DoesNotExist:
             # Don't reveal whether the email exists
-            messages.success(
-                self.request,
-                "If an account exists with this email, you will receive password reset instructions."
-            )
+            pass
+
+        messages.success(
+            self.request,
+            "If an account exists with this email, you will receive password reset instructions."
+        )
 
         return super().form_valid(form)
 
@@ -218,7 +228,7 @@ class PasswordResetConfirmView(FormView):
         Override to catch validation errors
         """
         # Make errors more visible to user
-        for field, errors in form.errors.items():
+        for errors in form.errors.values():
             for error in errors:
                 messages.error(self.request, f"{error}")
 
@@ -230,9 +240,24 @@ class VerifyTwoFactorView(FormView):
     success_url = reverse_lazy('console:home:index')
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.session.get('pending_user_id'):
+        pending_user_id = request.session.get('pending_user_id')
+        started_at = request.session.get('pending_2fa_started_at')
+        try:
+            expired = (
+                started_at is None
+                or timezone.now().timestamp() - float(started_at) > PENDING_2FA_TIMEOUT_SECONDS
+            )
+        except (TypeError, ValueError):
+            expired = True
+
+        if not pending_user_id or expired:
+            _clear_pending_two_factor(request.session)
             return redirect('console:login')
         return super().dispatch(request, *args, **kwargs)
+
+    @rate_limit('two_factor', limit=5, period=PENDING_2FA_TIMEOUT_SECONDS)
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -242,7 +267,6 @@ class VerifyTwoFactorView(FormView):
     def form_valid(self, form):
         user_id = self.request.session['pending_user_id']
         code = form.cleaned_data['code']
-        two_factor_type = self.request.session.get('two_factor_type')
 
         try:
             user = User.objects.get(id=user_id)
@@ -252,8 +276,7 @@ class VerifyTwoFactorView(FormView):
                 return self.form_invalid(form)
 
             login(self.request, user)
-            del self.request.session['pending_user_id']
-            del self.request.session['two_factor_type']
+            _clear_pending_two_factor(self.request.session)
             return super().form_valid(form)
 
         except User.DoesNotExist:

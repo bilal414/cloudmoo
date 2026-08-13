@@ -1,13 +1,17 @@
 import logging
 import uuid
-from django.utils import timezone
 
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 from model_utils.models import TimeStampedModel
 
 from apps.console.account.models import CoreAccount
-from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
+from apps.monitoring.models import (
+    AssetMonitoringState,
+    AssetStatusEmail,
+    AssetStatusLog,
+)
 from apps.monitoring.schedules import (
     asset_schedule_delete,
     asset_schedule_update,
@@ -500,8 +504,8 @@ class CoreCloud(TimeStampedModel):
             for asset, asset_type in monitored_assets:
                 asset_schedule_delete(asset)
 
-        except Exception as e:
-            print(f"Error deleting asset schedules for cloud {self.name}: {str(e)}")
+        except Exception:
+            logger.exception("Error deleting asset schedules for cloud %s", self.pk)
             raise
 
     def create_all_asset_schedules(self):
@@ -520,8 +524,8 @@ class CoreCloud(TimeStampedModel):
                     asset_schedule_delete(asset)
                 else:
                     asset_schedule_update(asset)
-        except Exception as e:
-            print(f"Error creating asset schedules for cloud {self.name}: {str(e)}")
+        except Exception:
+            logger.exception("Error creating asset schedules for cloud %s", self.pk)
             raise
 
     def delete_monitoring_data(self):
@@ -537,14 +541,26 @@ class CoreCloud(TimeStampedModel):
             AssetStatusEmail.objects.filter(asset_key__in=asset_keys).delete()
             AssetMonitoringState.objects.filter(asset_key__in=asset_keys).delete()
 
-        except Exception as e:
-            print(f"Error deleting monitoring data for cloud {self.name}: {str(e)}")
-            pass
+        except Exception:
+            logger.exception("Error deleting monitoring data for cloud %s", self.pk)
 
     def sync_assets(self):
         try:
             self.provider_account.sync_assets()
-            self.last_synced = timezone.now()
-            self.save()
+            completed_at = timezone.now()
+            # Avoid writing a stale in-memory status back over a concurrent UI
+            # pause/delete decision while a long provider sync is running.
+            type(self).objects.filter(pk=self.pk).update(last_synced=completed_at)
+            self.last_synced = completed_at
+            current = type(self).objects.only('status').get(pk=self.pk)
+            self.status = current.status
+            # Reconcile every schedule after a complete inventory pass. This
+            # creates tasks for newly supported resource families and removes
+            # tasks for resources that are no longer present. A concurrent
+            # user pause wins over this worker's stale in-memory state.
+            if self.status == self.Status.ACTIVE:
+                self.create_all_asset_schedules()
+            else:
+                self.delete_all_asset_schedules()
         except NotImplementedError:
             raise NotImplementedError("Asset synchronization not implemented for this cloud provider")

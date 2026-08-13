@@ -1,14 +1,20 @@
+import json
+import uuid
 from datetime import timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import requests
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from django_celery_beat.models import PeriodicTask
 
 from apps.console.account.models import CoreAccount, CoreAccountMembership
-from apps.console.cloud.digitalocean.models import CoreDigitalOceanAccount, CoreDigitalOceanServer
+from apps.console.cloud.digitalocean.models import (
+    CoreDigitalOceanAccount,
+    CoreDigitalOceanServer,
+)
 from apps.console.cloud.models import (
     CloudInventoryTransientError,
     CloudValidationTransientError,
@@ -18,15 +24,23 @@ from apps.console.cloud.models import (
 )
 from apps.console.member.models import CoreMember
 from apps.console.utils.models import UtilAsset
-from apps.monitoring.metadata import compare_metadata
-from apps.monitoring.models import AssetMonitoringState, AssetStatusEmail, AssetStatusLog
+from apps.monitoring.checks.digitalocean import check_digitalocean_server_status
 from apps.monitoring.email import (
     create_email_body,
     ensure_status_change_email_outbox,
     send_status_change_emails,
 )
-from apps.monitoring.metadata import redact_error_message, redact_sensitive_metadata
-from apps.monitoring.checks.digitalocean import check_digitalocean_server_status
+from apps.monitoring.locks import cloud_sync_lock_id
+from apps.monitoring.metadata import (
+    compare_metadata,
+    redact_error_message,
+    redact_sensitive_metadata,
+)
+from apps.monitoring.models import (
+    AssetMonitoringState,
+    AssetStatusEmail,
+    AssetStatusLog,
+)
 from apps.monitoring.schedules import (
     asset_schedule_create,
     asset_schedule_delete,
@@ -186,6 +200,13 @@ class InventorySafetyTestCase(TestCase):
         self.assertNotIn('super-secret-token', message)
         self.assertNotIn('also-secret', message)
         self.assertLessEqual(len(message), 2048)
+
+    def test_cloud_sync_lock_identifier_is_stable_and_bounded(self):
+        cloud_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+
+        self.assertEqual(cloud_sync_lock_id(cloud_uuid), -5519673542274308131)
+        self.assertGreaterEqual(cloud_sync_lock_id(cloud_uuid), -(2 ** 63))
+        self.assertLessEqual(cloud_sync_lock_id(cloud_uuid), (2 ** 63) - 1)
 
 
 class ProviderCheckErrorTestCase(TestCase):
@@ -589,6 +610,45 @@ class CloudSyncRecoveryTestCase(MonitoringFixtureTestCase):
         mock_validate.assert_called_once()
         mock_sync_assets.assert_called_once()
 
+    @patch.object(CoreCloud, 'validate')
+    @patch('apps.monitoring.tasks.cloud_sync_lock')
+    def test_duplicate_sync_is_skipped_before_provider_calls(self, mock_lock, mock_validate):
+        mock_lock.return_value.__enter__.return_value = False
+
+        result = run_cloud_sync(self.cloud)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result['skipped'])
+        mock_validate.assert_not_called()
+
+    @patch.object(CoreCloud, 'sync_assets')
+    @patch.object(CoreCloud, 'validate', return_value=True)
+    def test_concurrent_pause_is_not_overwritten(self, mock_validate, mock_sync_assets):
+        mock_sync_assets.side_effect = lambda: CoreCloud.objects.filter(
+            pk=self.cloud.pk
+        ).update(status=CoreCloud.Status.PAUSED)
+
+        result = run_cloud_sync(self.cloud)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['current_status'], CoreCloud.Status.PAUSED)
+        self.cloud.refresh_from_db()
+        self.assertEqual(self.cloud.status, CoreCloud.Status.PAUSED)
+        self.assertFalse(
+            PeriodicTask.objects.filter(name=f'asset-{self.server.uuid}').exists()
+        )
+
+    @patch.object(CoreCloud, 'validate', return_value=False)
+    def test_invalid_credentials_disable_asset_checks(self, mock_validate):
+        result = run_cloud_sync(self.cloud)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['current_status'], CoreCloud.Status.INVALID_AUTH)
+        self.assertFalse(
+            PeriodicTask.objects.filter(name=f'asset-{self.server.uuid}').exists()
+        )
+        mock_validate.assert_called_once()
+
     @patch.object(CoreCloud, 'validate', side_effect=CloudValidationTransientError('provider unavailable'))
     def test_transient_validation_does_not_disable_monitoring(self, mock_validate):
         result = run_cloud_sync(self.cloud)
@@ -602,6 +662,98 @@ class CloudSyncRecoveryTestCase(MonitoringFixtureTestCase):
             PeriodicTask.objects.get(name=f'cloud-{self.cloud.uuid}').enabled
         )
         mock_validate.assert_called_once()
+
+
+class ConsoleAssetHardeningTestCase(MonitoringFixtureTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.detail_url = reverse(
+            'console:asset:detail',
+            kwargs={
+                'provider_code': self.server.provider_code,
+                'asset_type': self.server.type,
+                'asset_id': self.server.pk,
+            },
+        )
+        self.email_url = reverse(
+            'console:asset:update_emails',
+            kwargs={
+                'provider_code': self.server.provider_code,
+                'asset_type': self.server.type,
+                'asset_id': self.server.pk,
+            },
+        )
+
+    def test_detail_serializes_legacy_email_values_without_script_injection(self):
+        malicious = '</script><script>alert(1)</script>@example.com'
+        type(self.server).objects.filter(pk=self.server.pk).update(
+            notification_emails=[malicious]
+        )
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, malicious)
+        self.assertContains(response, r'\u003C/script\u003E')
+
+    def test_email_update_validates_and_casefold_deduplicates_recipients(self):
+        invalid_response = self.client.post(
+            self.email_url,
+            data=json.dumps({'email_list': ['not-an-email']}),
+            content_type='application/json',
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+
+        valid_response = self.client.post(
+            self.email_url,
+            data=json.dumps({
+                'email_list': [
+                    ' User@example.com ',
+                    'user@example.com',
+                    'alerts@example.com',
+                ],
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(valid_response.status_code, 200)
+        self.assertEqual(
+            valid_response.json()['email_list'],
+            ['User@example.com', 'alerts@example.com'],
+        )
+
+    def test_invalid_pagination_and_sort_inputs_fall_back_safely(self):
+        detail_response = self.client.get(
+            self.detail_url,
+            {'timeline_page': 'bad', 'timeline_page_size': '1000000'},
+        )
+        list_response = self.client.get(
+            reverse('console:asset:list'),
+            {'page_size': 'bad', 'sort': '__class__', 'direction': 'sideways'},
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.context['timeline_page_size'], 10)
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.context['page_size'], 10)
+        self.assertEqual(list_response.context['sort_by'], 'created')
+
+    def test_csv_export_uses_safe_filename_and_escapes_formula_cells(self):
+        self.server.name = 'unsafe-name-with-header-characters'
+        self.server.save(update_fields=['name'])
+        self.create_log(
+            'active',
+            timezone.now(),
+            metadata_changes=['=HYPERLINK("https://example.invalid")'],
+        )
+
+        response = self.client.get(self.detail_url, {'export': 'csv'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(str(self.server.uuid), response['Content-Disposition'])
+        self.assertNotIn(self.server.name, response['Content-Disposition'])
+        self.assertIn("'=HYPERLINK", response.content.decode('utf-8'))
 
 
 class EmailRenderingTestCase(MonitoringFixtureTestCase):

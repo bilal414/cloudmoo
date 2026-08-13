@@ -150,52 +150,65 @@ traffic to the web process.
 
 ## Deployment
 
-### VPS (one-liner installer)
+CloudMoo deploys as five pieces: a web process, a Celery worker, a single
+Celery beat scheduler, PostgreSQL, and RabbitMQ. Use a provider blueprint when
+you want those services provisioned together, or use the Docker installer on
+any Ubuntu/Debian VM.
+
+### One-click on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bilal414/cloudmoo)
+
+The [`render.yaml`](render.yaml) Blueprint provisions the web, worker, and beat
+services, a managed PostgreSQL database, and a private RabbitMQ service. It
+also derives the Render hostname automatically and leaves first-run sign-up
+open; disable `REGISTRATION_OPEN` after the instance owner has verified the
+initial account. The Blueprint uses paid Render plans, so review the current
+plan cost in Render before deploying.
+
+After the first deploy, configure SMTP and add the cloud-provider credentials
+from the CloudMoo console before relying on scheduled checks or email alerts.
+
+### One-click on Heroku
+
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/bilal414/cloudmoo)
+
+The Heroku Button provisions the Essential-0 Postgres and CloudAMQP RabbitMQ
+add-ons and a web/worker/beat formation from [`heroku.yml`](heroku.yml). The
+container detects Heroku's non-root runtime and runs Gunicorn directly on
+`$PORT`, with static files served by WhiteNoise. `APP_DOMAIN` is optional for
+the generated Heroku hostname; set it for a custom domain or stable
+verification links. Heroku Buttons currently create Cedar/container apps, not
+Fir apps.
+
+### Railway template
+
+Railway supports a true one-click flow through a published template. The
+source-controlled service definitions and variable recipe are in
+[`deploy/railway/`](deploy/railway/). Follow its short setup once, generate a
+template from the configured project, and use the generated template URL for a
+Railway button. The URL is account-owned infrastructure, so it cannot be
+invented safely in source control.
+
+### Any VPS: DigitalOcean, Hetzner, Linode, Vultr, UpCloud, or AWS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh | sudo bash
 ```
 
-Installs Docker and the Compose stack under `/opt/cloudmoo` on Debian/Ubuntu.
-Pass `--domain` to configure the public hostname:
+The installer provisions Docker and the complete Compose stack under
+`/opt/cloudmoo` on Debian/Ubuntu. It is suitable for a fresh VM from the
+providers above. Pass `--domain` to configure the public hostname:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bilal414/cloudmoo/main/install.sh | sudo bash -s -- --domain monitors.example.com
 ```
 
-### Deploy to Render
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bilal414/cloudmoo)
-
-The Blueprint (`render.yaml`) provisions the web, worker, and beat services, a
-managed PostgreSQL database, and a private RabbitMQ broker.
-
-### Deploy to Heroku
-
-[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/bilal414/cloudmoo)
-
-Runs a web/worker/beat formation (`heroku.yml`) with the Heroku Postgres and
-CloudAMQP (RabbitMQ) add-ons from `app.json`.
-
-### Railway
-
-Per-service configs live in `deploy/railway/` (`web`, `worker`, `beat`).
-Create three services from the same repository with the matching config file,
-plus PostgreSQL and RabbitMQ.
-
-### cloud-init
-
-`deploy/cloud-init/cloudmoo.yaml` is a ready-made cloud-config that runs the
-installer on first boot of a fresh Ubuntu/Debian VM.
-
-### Marketing website
-
-`website/` is a static site with no build step. Deploy it on Cloudflare Pages
-with output directory `website` and no build command, or from the CLI:
-
-```bash
-npx wrangler pages deploy website
-```
+For first-boot automation, paste
+[`deploy/cloud-init/cloudmoo.yaml`](deploy/cloud-init/cloudmoo.yaml) into the
+provider's cloud-init/user-data field. The quick-start installer exposes HTTP
+on port 8000; put the VM behind a TLS reverse proxy before exposing it to the
+public internet, and pin `--branch` to a release tag for reproducible installs.
 
 ## Configuration
 
@@ -208,6 +221,10 @@ documented [`.env.example`](.env.example). Highlights:
 | `DJANGO_DEBUG` | Debug mode — `false` in production | `false` |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames | — |
 | `HTTPS_ENABLED` | Secure cookies, HSTS, SSL redirect | `false` |
+| `DB_CONN_MAX_AGE` | Persistent PostgreSQL connection lifetime in seconds | `0` in debug / `60` in production |
+| `DB_CONNECT_TIMEOUT` | PostgreSQL connection timeout in seconds | driver default |
+| `DB_SSLMODE` | Optional PostgreSQL TLS mode | driver default |
+| `RATE_LIMIT_TRUST_X_FORWARDED_FOR` | Trust a controlled proxy's client-address header for login throttling | `false` |
 | `REGISTRATION_OPEN` | Allow public sign-ups | `true` |
 | `EMAIL_BACKEND` | Any Django email backend | console (dev) / SMTP |
 | `DATABASE_URL` | Optional; overrides the `DB_*` settings (`DB_SSLMODE` optional) | — |
@@ -235,9 +252,11 @@ python manage.py setup_test_accounts --dry-run
 python manage.py test
 ```
 
-Connection tests under `tests/` use the dummy credentials in
-`tests/test_accounts.json`; point them at real credentials (locally only,
-never commit them) to verify provider integrations end-to-end.
+The default suite is mocked and never creates provider resources. Live E2E
+harnesses are separate, explicit commands and require credentials through
+environment variables or an ignored local configuration file. See
+[`tests/README.md`](tests/README.md); never place real credentials in the
+tracked `tests/test_accounts.json` fixture.
 
 ## Project Structure
 
@@ -251,7 +270,6 @@ apps/
   management/         Management commands
   _migrations/        Consolidated migrations (single 'apps' module)
 tests/                Provider connection tests + fixtures
-website/              Marketing site (static, for Cloudflare Pages)
 deploy/               Railway service configs + cloud-init user data
 install.sh            VPS installer
 render.yaml           Render Blueprint

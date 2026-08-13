@@ -1,47 +1,75 @@
+import csv
 import json
+import logging
 
-from django.views.generic import ListView
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_POST
+from django.views.generic import DetailView, ListView
 
-from apps.console.cloud.aws.models import CoreAWSInstance, CoreAWSVolume, CoreAWSRDSDatabase, CoreAWSLambda, CoreAWSDynamoDB, CoreAWSS3Bucket, CoreAWSACMCertificate, CoreAWSSnapshot, CoreAWSElasticIP, CoreAWSLoadBalancer, CoreAWSSecurityGroup, CoreAWSECSService, CoreAWSECSTask
+from apps.console.cloud.aws.account_operations import (
+    AWS_ACCOUNT_OPERATIONS_ASSET_MODELS,
+)
+from apps.console.cloud.aws.application_services import AWS_APPLICATION_ASSET_MODELS
+from apps.console.cloud.aws.backup import AWS_BACKUP_ASSET_MODELS
+from apps.console.cloud.aws.containers import AWS_CONTAINER_ASSET_MODELS
+from apps.console.cloud.aws.credentials_config import (
+    AWS_CREDENTIALS_CONFIG_ASSET_MODELS,
+)
+from apps.console.cloud.aws.data_services import AWS_DATA_SERVICE_ASSET_MODELS
+from apps.console.cloud.aws.delivery import AWS_DELIVERY_ASSET_MODELS
+from apps.console.cloud.aws.edge import AWS_EDGE_ASSET_MODELS
 from apps.console.cloud.aws.lightsail import (
-    CoreAWSLightsailInstance,
-    CoreAWSLightsailDisk,
-    CoreAWSLightsailInstanceSnapshot,
-    CoreAWSLightsailDiskSnapshot,
-    CoreAWSLightsailStaticIP,
-    CoreAWSLightsailDatabase,
-    CoreAWSLightsailDatabaseSnapshot,
-    CoreAWSLightsailLoadBalancer,
-    CoreAWSLightsailCertificate,
+    CoreAWSLightsailAlarm,
+    CoreAWSLightsailAutoSnapshot,
     CoreAWSLightsailBucket,
-    CoreAWSLightsailDistribution,
-    CoreAWSLightsailDomain,
-    CoreAWSLightsailDNSRecord,
-    CoreAWSLightsailContainerService,
+    CoreAWSLightsailCertificate,
     CoreAWSLightsailContainerDeployment,
     CoreAWSLightsailContainerImage,
-    CoreAWSLightsailAlarm,
+    CoreAWSLightsailContainerService,
+    CoreAWSLightsailDatabase,
+    CoreAWSLightsailDatabaseSnapshot,
+    CoreAWSLightsailDisk,
+    CoreAWSLightsailDiskSnapshot,
+    CoreAWSLightsailDistribution,
+    CoreAWSLightsailDNSRecord,
+    CoreAWSLightsailDomain,
+    CoreAWSLightsailInstance,
+    CoreAWSLightsailInstanceSnapshot,
+    CoreAWSLightsailLoadBalancer,
     CoreAWSLightsailOperation,
-    CoreAWSLightsailAutoSnapshot,
+    CoreAWSLightsailStaticIP,
+)
+from apps.console.cloud.aws.models import (
+    CoreAWSACMCertificate,
+    CoreAWSDynamoDB,
+    CoreAWSECSService,
+    CoreAWSECSTask,
+    CoreAWSElasticIP,
+    CoreAWSInstance,
+    CoreAWSLambda,
+    CoreAWSLoadBalancer,
+    CoreAWSRDSDatabase,
+    CoreAWSS3Bucket,
+    CoreAWSSecurityGroup,
+    CoreAWSSnapshot,
+    CoreAWSVolume,
 )
 from apps.console.cloud.aws.network import AWS_NETWORK_COLLECTION_SPECS
 from apps.console.cloud.aws.observability import AWS_OBSERVABILITY_ASSET_MODELS
-from apps.console.cloud.aws.containers import AWS_CONTAINER_ASSET_MODELS
-from apps.console.cloud.aws.edge import AWS_EDGE_ASSET_MODELS
-from apps.console.cloud.aws.backup import AWS_BACKUP_ASSET_MODELS
-from apps.console.cloud.aws.data_services import AWS_DATA_SERVICE_ASSET_MODELS
-from apps.console.cloud.aws.application_services import AWS_APPLICATION_ASSET_MODELS
-from apps.console.cloud.aws.delivery import AWS_DELIVERY_ASSET_MODELS
-from apps.console.cloud.aws.security_governance import AWS_SECURITY_GOVERNANCE_ASSET_MODELS
-from apps.console.cloud.aws.credentials_config import AWS_CREDENTIALS_CONFIG_ASSET_MODELS
-from apps.console.cloud.aws.account_operations import AWS_ACCOUNT_OPERATIONS_ASSET_MODELS
+from apps.console.cloud.aws.security_governance import (
+    AWS_SECURITY_GOVERNANCE_ASSET_MODELS,
+)
 from apps.console.cloud.digitalocean.models import (
     CoreDigitalOceanApp,
     CoreDigitalOceanBackup,
-    CoreDigitalOceanContainerRegistry,
     CoreDigitalOceanCDNEndpoint,
     CoreDigitalOceanCertificate,
+    CoreDigitalOceanContainerRegistry,
     CoreDigitalOceanDatabase,
     CoreDigitalOceanDNSRecord,
     CoreDigitalOceanDomain,
@@ -49,31 +77,49 @@ from apps.console.cloud.digitalocean.models import (
     CoreDigitalOceanKubernetesCluster,
     CoreDigitalOceanKubernetesNodePool,
     CoreDigitalOceanLoadBalancer,
-    CoreDigitalOceanVPC,
-    CoreDigitalOceanVPCNATGateway,
-    CoreDigitalOceanVPCPeering,
     CoreDigitalOceanReservedIP,
     CoreDigitalOceanServer,
     CoreDigitalOceanSnapshot,
     CoreDigitalOceanSpace,
     CoreDigitalOceanVolume,
+    CoreDigitalOceanVPC,
+    CoreDigitalOceanVPCNATGateway,
+    CoreDigitalOceanVPCPeering,
 )
-from apps.console.cloud.hetzner.models import CoreHetznerVolume, CoreHetznerServer
+from apps.console.cloud.hetzner.models import CoreHetznerServer, CoreHetznerVolume
 from apps.console.cloud.hetzner.resources import HETZNER_RESOURCE_MODELS
 from apps.console.cloud.linode.models import CoreLinodeServer, CoreLinodeVolume
-from apps.console.cloud.models import CoreCloudServiceProvider
+from apps.console.cloud.models import CoreCloud, CoreCloudServiceProvider
 from apps.console.cloud.upcloud.models import CoreUpCloudServer, CoreUpCloudVolume
-from apps.console.cloud.vultr.models import CoreVultrVolume, CoreVultrServer, CoreVultrDatabase
 from apps.console.cloud.vultr.integration import get_vultr_resource_models
-from django.views.decorators.http import require_POST
-from django.utils.decorators import method_decorator
-from operator import attrgetter
-from django.views.generic import DetailView
-from django.shortcuts import get_object_or_404
-from apps.console.cloud.models import CoreCloud
+from apps.console.cloud.vultr.models import (
+    CoreVultrDatabase,
+    CoreVultrServer,
+    CoreVultrVolume,
+)
 from apps.console.utils.models import UtilAsset
 from apps.monitoring.tasks import check_asset_status_now
-from django.http import JsonResponse, Http404
+
+logger = logging.getLogger(__name__)
+PAGE_SIZE_OPTIONS = (10, 25, 50)
+TIMELINE_PAGE_SIZE_OPTIONS = (10, 25, 50, 100, 200)
+ASSET_SORT_FIELDS = {'created', 'monitoring', 'name', 'type'}
+
+
+def _validated_page_size(raw_value, options, default):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value in options else default
+
+
+def _safe_csv_cell(value):
+    """Prevent spreadsheet software from interpreting exported text as a formula."""
+    text = str(value)
+    if text.lstrip().startswith(('=', '+', '-', '@')) or text.startswith(('\t', '\r')):
+        return f"'{text}"
+    return text
 
 
 _AWS_NETWORK_ASSET_MODELS = {
@@ -111,7 +157,11 @@ class AssetsListView(ListView):
 
         # Get sort parameters
         sort_by = self.request.GET.get('sort', 'created')
+        if sort_by not in ASSET_SORT_FIELDS:
+            sort_by = 'created'
         sort_direction = self.request.GET.get('direction', 'desc')
+        if sort_direction not in {'asc', 'desc'}:
+            sort_direction = 'desc'
 
         # Apply cloud filter
         cloud_filter = self.request.GET.get('cloud', '')
@@ -154,10 +204,14 @@ class AssetsListView(ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        assets = self.get_queryset()
+        assets = self.object_list
 
         # Get the page size from request or use default
-        page_size = int(self.request.GET.get('page_size', self.paginate_by))
+        page_size = _validated_page_size(
+            self.request.GET.get('page_size'),
+            PAGE_SIZE_OPTIONS,
+            self.paginate_by,
+        )
 
         paginator = Paginator(assets, page_size)
         page_number = self.request.GET.get('page')
@@ -183,9 +237,17 @@ class AssetsListView(ListView):
             'monitoring_choices': UtilAsset.Monitoring.choices,
             'clouds': CoreCloud.objects.for_user(self.request.user),
             'page_size': page_size,
-            'page_size_options': [10, 25, 50],
-            'sort_by': self.request.GET.get('sort', 'created'),
-            'sort_direction': self.request.GET.get('direction', 'desc'),
+            'page_size_options': PAGE_SIZE_OPTIONS,
+            'sort_by': (
+                self.request.GET.get('sort')
+                if self.request.GET.get('sort') in ASSET_SORT_FIELDS
+                else 'created'
+            ),
+            'sort_direction': (
+                self.request.GET.get('direction')
+                if self.request.GET.get('direction') in {'asc', 'desc'}
+                else 'desc'
+            ),
             'query_params': query_params.urlencode(),
         })
 
@@ -297,16 +359,15 @@ class AssetDetailView(DetailView):
         return super().get(request, *args, **kwargs)
 
     def export_timeline_csv(self, request):
-        import csv
-        from django.http import HttpResponse
-        from datetime import datetime
-
         asset = self.get_object()
         timeline = asset.get_status_timeline()
 
-        response = HttpResponse(content_type='text/csv')
-        response[
-            'Content-Disposition'] = f'attachment; filename="status_timeline_{asset.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        filename = (
+            f'status_timeline_{asset.uuid}_'
+            f'{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
         writer = csv.writer(response)
         writer.writerow(['Timestamp', 'Status', 'Duration', 'Changes'])
@@ -319,10 +380,10 @@ class AssetDetailView(DetailView):
             changes = '; '.join(entry.get('metadata_changes', [])) or 'No changes'
 
             writer.writerow([
-                timestamp,
-                entry['status'],
-                entry.get('duration', 'N/A'),
-                changes
+                _safe_csv_cell(timestamp),
+                _safe_csv_cell(entry['status']),
+                _safe_csv_cell(entry.get('duration', 'N/A')),
+                _safe_csv_cell(changes),
             ])
 
         return response
@@ -335,7 +396,11 @@ class AssetDetailView(DetailView):
         
         # Pagination for status timeline
         timeline_page = self.request.GET.get('timeline_page', 1)
-        timeline_page_size = int(self.request.GET.get('timeline_page_size', 10))
+        timeline_page_size = _validated_page_size(
+            self.request.GET.get('timeline_page_size'),
+            TIMELINE_PAGE_SIZE_OPTIONS,
+            10,
+        )
         
         try:
             timeline_page = int(timeline_page)
@@ -355,7 +420,7 @@ class AssetDetailView(DetailView):
         context['timeline_page_number'] = timeline_page
         context['timeline_total_pages'] = timeline_data['total_pages']
         context['timeline_page_size'] = timeline_page_size
-        context['timeline_page_size_options'] = [10, 25, 50, 100, 200]
+        context['timeline_page_size_options'] = TIMELINE_PAGE_SIZE_OPTIONS
         context['timeline_page_range'] = range(1, timeline_data['total_pages'] + 1)
         
         return context
@@ -385,8 +450,12 @@ class AssetDetailView(DetailView):
             asset.save()
 
             return JsonResponse({'success': True, 'new_status': new_status})
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        except Exception:
+            logger.exception("Could not update monitoring for asset %s", asset.pk)
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to update monitoring status',
+            }, status=500)
 
     @method_decorator(require_POST)
     def update_email_list(self, request, *args, **kwargs):
@@ -408,10 +477,17 @@ class AssetDetailView(DetailView):
                 'success': False,
                 'error': 'Invalid JSON data'
             }, status=400)
-        except Exception as e:
+        except ValidationError as error:
+            message = error.messages[0] if error.messages else 'Invalid email list'
             return JsonResponse({
                 'success': False,
-                'error': f'Failed to update email list: {str(e)}'
+                'error': message,
+            }, status=400)
+        except Exception:
+            logger.exception("Could not update notification emails for asset %s", asset.pk)
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to update email list',
             }, status=500)
 
     @method_decorator(require_POST)
@@ -435,8 +511,9 @@ class AssetDetailView(DetailView):
                 'error': result.get('error'),
             })
 
-        except Exception as e:
+        except Exception:
+            logger.exception("Could not run an immediate status check for asset %s", asset.pk)
             return JsonResponse({
                 'success': False,
-                'error': f'Failed to trigger status check: {str(e)}'
+                'error': 'Failed to trigger status check',
             }, status=500)

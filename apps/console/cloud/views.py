@@ -1,21 +1,25 @@
-from .models import CoreCloudServiceProvider
-from django.views import View
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.mixins import LoginRequiredMixin
+import logging
+
 from django.contrib import messages
-from .models import CoreCloud
-from .forms import CloudEditForm
-from django.http import HttpResponseRedirect
-from django.urls import reverse
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.views.generic import ListView, DetailView
-from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.http import HttpResponseRedirect, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.decorators import method_decorator
-from django.db import models
+from django.views import View
+from django.views.decorators.http import require_POST
+from django.views.generic import DetailView, ListView
+
+from apps.monitoring.schedules import cloud_schedule_update
+from apps.monitoring.tasks import run_cloud_sync
 
 from ..utils.models import UtilAsset
-from apps.monitoring.schedules import cloud_schedule_update
+from .forms import CloudEditForm
+from .models import CoreCloud, CoreCloudServiceProvider
+
+
+logger = logging.getLogger(__name__)
 
 
 class CloudConnect(ListView):
@@ -82,22 +86,25 @@ class CloudEditView(LoginRequiredMixin, View):
             cloud.delete()
             messages.success(request, f'Cloud "{cloud_name}" has been deleted successfully.')
             return JsonResponse({'success': True, 'redirect_url': reverse('console:cloud:list')})
-        except Exception as e:
+        except Exception:
+            logger.exception("Could not delete cloud %s", cloud.pk)
             return JsonResponse({
                 'success': False,
-                'error': f'Failed to delete cloud: {str(e)}'
+                'error': 'Failed to delete cloud',
             }, status=500)
 
 class CloudSyncView(LoginRequiredMixin, View):
     def post(self, request, cloud_id):
         cloud = get_object_or_404(CoreCloud.objects.for_user(self.request.user), id=cloud_id)
         try:
-            cloud.sync_assets()
-            messages.success(request, f"Assets for {cloud.name} synced successfully!")
-        except NotImplementedError:
-            messages.error(request, f"Asset synchronization not implemented for {cloud.provider.name}")
-        except Exception as e:
-            messages.error(request, f"Error syncing assets: {str(e)}")
+            result = run_cloud_sync(cloud)
+            if result.get('success'):
+                messages.success(request, result['message'])
+            else:
+                messages.error(request, result['message'])
+        except Exception:
+            logger.exception("Could not synchronize cloud %s", cloud.pk)
+            messages.error(request, "Cloud synchronization failed. Please try again.")
         return HttpResponseRedirect(reverse('console:cloud:list'))
 
 
@@ -321,7 +328,6 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
             }
 
     def get_assets(self, cloud):
-        provider_account = cloud.provider_account
         assets = []
 
         assets.extend(asset for asset, _asset_type in cloud.get_all_assets())
@@ -365,7 +371,6 @@ class CloudDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         cloud = self.object
-        provider_account = cloud.provider_account
 
         assets = self.get_assets(cloud)
 

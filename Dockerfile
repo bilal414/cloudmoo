@@ -19,6 +19,12 @@ COPY . /code
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Build static assets into the image so a non-root PaaS runtime can serve them
+# without trying to write to /code during boot. The key is build-only and is
+# replaced by the real runtime secret through the platform environment.
+RUN DJANGO_SECRET_KEY=cloudmoo-build-only-static-key DJANGO_DEBUG=false \
+    python manage.py collectstatic --noinput
+
 # The web entrypoint starts nginx as root, then drops gunicorn to this user.
 # Celery worker and beat services run as this user from the start.
 RUN groupadd --system cloudmoo && \

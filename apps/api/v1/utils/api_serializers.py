@@ -1,4 +1,7 @@
-class ReadWriteSerializerMixin(object):
+from django.core.exceptions import ImproperlyConfigured
+
+
+class ReadWriteSerializerMixin:
     """
     Overrides get_serializer_class to choose the read serializer
     for GET requests and the write serializer for POST requests.
@@ -16,17 +19,19 @@ class ReadWriteSerializerMixin(object):
         return self.get_read_serializer_class()
 
     def get_read_serializer_class(self):
-        assert self.read_serializer_class is not None, (
-                "'%s' should either include a `read_serializer_class` attribute,"
+        if self.read_serializer_class is None:
+            raise ImproperlyConfigured(
+                f"'{self.__class__.__name__}' should either include a "
+                "`read_serializer_class` attribute,"
                 "or override the `get_read_serializer_class()` method."
-                % self.__class__.__name__
-        )
+            )
         return self.read_serializer_class
 
     def get_write_serializer_class(self):
-        assert self.write_serializer_class is not None, (
-                "'%s' should either include a `write_serializer_class` attribute,"
+        if self.write_serializer_class is None:
+            raise ImproperlyConfigured(
+                f"'{self.__class__.__name__}' should either include a "
+                "`write_serializer_class` attribute,"
                 "or override the `get_write_serializer_class()` method."
-                % self.__class__.__name__
-        )
+            )
         return self.write_serializer_class
