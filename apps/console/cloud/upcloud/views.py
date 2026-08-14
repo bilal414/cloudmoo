@@ -2,6 +2,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from apps.monitoring.tasks import queue_cloud_sync
 from .models import CoreUpCloudAccount, CoreCloud
 from .forms import UpCloudConnectForm
 from django.utils import timezone
@@ -27,8 +28,8 @@ class ConnectUpCloudView(LoginRequiredMixin, View):
                     password=form.cleaned_data.get('password', ''),
                     api_token=form.cleaned_data.get('api_token', ''),
                 )
-                upcloud_account.cloud.sync_assets()
-                messages.success(request, 'UpCloud account connected successfully!')
+                queue_cloud_sync(upcloud_account.cloud)
+                messages.success(request, 'UpCloud account connected successfully! Asset sync is running in the background.')
                 return redirect('console:cloud:list')
             except Exception as e:
                 messages.error(request, f'Error connecting UpCloud account: {str(e)}')

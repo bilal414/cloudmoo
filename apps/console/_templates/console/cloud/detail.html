@@ -56,7 +56,11 @@
                     <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                     </svg>
-                    Last synced {{ cloud.last_synced|naturaltime|default:"Never" }}
+                    {% if cloud.sync_in_progress %}
+                        Sync in progress…
+                    {% else %}
+                        Last synced {{ cloud.last_synced|naturaltime|default:"Never" }}
+                    {% endif %}
                 </div>
             </div>
         </div>

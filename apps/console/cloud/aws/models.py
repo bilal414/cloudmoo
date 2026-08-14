@@ -3,9 +3,12 @@ from apps.console.cloud.models import CloudValidationTransientError, CoreCloud
 from apps.console.utils.helper import _serialize_datetime
 from apps.console.utils.models import UtilCloud, UtilAsset
 import boto3
+import logging
 from botocore.config import Config
 from botocore.exceptions import ClientError, NoCredentialsError
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 AWS_CLIENT_CONFIG = Config(
@@ -120,6 +123,118 @@ class CoreAWSAccount(UtilCloud):
         account_operations.sync_aws_account_operations_assets(self)
         self.last_synced = timezone.now()
         self.save()
+
+    # Task-sized inventory units for the distributed sync pipeline.  A full
+    # AWS pass takes far longer than any single task's time limit, so the
+    # periodic sync fans these out into one task per family (and one per
+    # region for the CloudWatch metrics walk, which dominates the runtime).
+    AWS_SYNC_FAMILIES = (
+        'servers',
+        'volumes',
+        'rds_databases',
+        'lambda_functions',
+        'dynamodb_tables',
+        's3_buckets',
+        'elastic_ips',
+        'load_balancers',
+        'security_groups',
+        'ecs_services',
+        'ecs_tasks',
+        'network',
+        'containers',
+        'edge',
+        'backup',
+        'snapshots',
+        'certificates',
+        'data_services',
+        'application_services',
+        'delivery',
+        'lightsail',
+        'security_governance',
+        'credentials_config',
+        'account_operations',
+        'observability.alarms',
+        'observability.log_groups',
+    )
+
+    def sync_asset_families(self):
+        families = [(family_key, None) for family_key in self.AWS_SYNC_FAMILIES]
+        from .discovery import get_enabled_regions
+        try:
+            regions = get_enabled_regions(self)
+        except Exception as error:
+            # Keep the fan-out alive with a single all-regions metrics shard;
+            # the shard itself retries region discovery.
+            logger.warning(
+                "AWS region discovery failed during sync fan-out for account %s: %s",
+                self.pk,
+                type(error).__name__,
+            )
+            families.append(('observability.metrics', None))
+        else:
+            families.extend(('observability.metrics', region) for region in regions)
+        return families
+
+    def sync_asset_family(self, family_key, region=None):
+        if family_key.startswith('observability.'):
+            from . import observability
+            asset_types = {
+                'observability.alarms': observability.ASSET_TYPE_CLOUDWATCH_ALARM,
+                'observability.metrics': observability.ASSET_TYPE_CLOUDWATCH_METRIC,
+                'observability.log_groups': observability.ASSET_TYPE_LOG_GROUP,
+            }
+            asset_type = asset_types.get(family_key)
+            if asset_type is None:
+                raise ValueError(f"Unknown AWS sync family: {family_key}")
+            return observability.sync_aws_observability_collection(
+                self, asset_type, region=region
+            )
+
+        # Priority 0 adapters are imported lazily because each provider module
+        # refers back to CoreAWSAccount for its persisted owner relation.
+        from . import (
+            account_operations,
+            application_services,
+            backup,
+            containers,
+            credentials_config,
+            data_services,
+            delivery,
+            edge,
+            network,
+            security_governance,
+        )
+
+        handlers = {
+            'servers': self.sync_servers,
+            'volumes': self.sync_volumes,
+            'rds_databases': self.sync_rds_databases,
+            'lambda_functions': self.sync_lambda_functions,
+            'dynamodb_tables': self.sync_dynamodb_tables,
+            's3_buckets': self.sync_s3_buckets,
+            'elastic_ips': self.sync_elastic_ips,
+            'load_balancers': self.sync_load_balancers,
+            'security_groups': self.sync_security_groups,
+            'ecs_services': self.sync_ecs_services,
+            'ecs_tasks': self.sync_ecs_tasks,
+            'network': lambda: network.sync_aws_network_assets(self),
+            'containers': lambda: containers.sync_aws_container_assets(self),
+            'edge': lambda: edge.sync_aws_edge_assets(self),
+            'backup': lambda: backup.sync_aws_backup_assets(self),
+            'snapshots': lambda: backup.sync_aws_snapshots(self),
+            'certificates': lambda: edge.sync_aws_regional_certificates(self),
+            'data_services': lambda: data_services.sync_aws_data_service_assets(self),
+            'application_services': lambda: application_services.sync_aws_application_service_assets(self),
+            'delivery': lambda: delivery.sync_aws_delivery_assets(self),
+            'lightsail': self.sync_lightsail_assets,
+            'security_governance': lambda: security_governance.sync_aws_security_governance_assets(self),
+            'credentials_config': lambda: credentials_config.sync_aws_credentials_config_assets(self),
+            'account_operations': lambda: account_operations.sync_aws_account_operations_assets(self),
+        }
+        handler = handlers.get(family_key)
+        if handler is None:
+            raise ValueError(f"Unknown AWS sync family: {family_key}")
+        return handler()
 
     def _get_aws_client(self, service='ec2', region=None):
         return boto3.client(

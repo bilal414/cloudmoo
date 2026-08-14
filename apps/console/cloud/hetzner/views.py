@@ -4,6 +4,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from apps.monitoring.tasks import queue_cloud_sync
 from .models import CoreHetznerAccount, CoreCloud
 from apps.console.account.models import CoreAccount
 from .forms import HetznerConnectForm
@@ -36,8 +37,8 @@ class ConnectHetznerView(LoginRequiredMixin, View):
                     object_storage_secret_key=form.cleaned_data.get('object_storage_secret_key', ''),
                     object_storage_region=form.cleaned_data.get('object_storage_region', ''),
                 )
-                hetzner_account.cloud.sync_assets()
-                messages.success(request, 'Hetzner account connected successfully!')
+                queue_cloud_sync(hetzner_account.cloud)
+                messages.success(request, 'Hetzner account connected successfully! Asset sync is running in the background.')
                 return redirect('console:cloud:list')
             except Exception:
                 # Provider exceptions can contain request URLs or credential

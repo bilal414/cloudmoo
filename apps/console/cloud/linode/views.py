@@ -2,6 +2,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from apps.monitoring.tasks import queue_cloud_sync
 from .models import CoreLinodeAccount, CoreCloud
 from .forms import LinodeConnectForm
 from django.utils import timezone
@@ -26,8 +27,8 @@ class ConnectLinodeView(LoginRequiredMixin, View):
                     account_name=form.cleaned_data['account_name'],
                     access_token=form.cleaned_data['access_token']
                 )
-                linode_account.cloud.sync_assets()
-                messages.success(request, 'Linode account connected successfully!')
+                queue_cloud_sync(linode_account.cloud)
+                messages.success(request, 'Linode account connected successfully! Asset sync is running in the background.')
                 return redirect('console:cloud:list')
             except Exception as e:
                 messages.error(request, f'Error connecting Linode account: {str(e)}')

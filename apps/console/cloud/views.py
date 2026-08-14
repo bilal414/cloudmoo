@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView
 
 from apps.monitoring.schedules import cloud_schedule_update
-from apps.monitoring.tasks import run_cloud_sync
+from apps.monitoring.tasks import queue_cloud_sync
 
 from ..utils.models import UtilAsset
 from .forms import CloudEditForm
@@ -97,8 +97,15 @@ class CloudSyncView(LoginRequiredMixin, View):
     def post(self, request, cloud_id):
         cloud = get_object_or_404(CoreCloud.objects.for_user(self.request.user), id=cloud_id)
         try:
-            result = run_cloud_sync(cloud)
-            if result.get('success'):
+            # The inventory pass runs on the task queue, not on a web worker:
+            # at AWS scale a full pass can far exceed any request timeout.
+            result = queue_cloud_sync(cloud)
+            if result.get('queued'):
+                messages.success(
+                    request,
+                    f'Cloud synchronization for {cloud.name} has been started and runs in the background.',
+                )
+            elif result.get('success'):
                 messages.success(request, result['message'])
             else:
                 messages.error(request, result['message'])

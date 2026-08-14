@@ -505,6 +505,69 @@ def _cloudwatch_client(context, region):
     return aws_client(context, "cloudwatch", region=region)
 
 
+_REGION_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
+
+
+def sync_aws_observability_collection(account, asset_type, region=None):
+    """Synchronize a single CloudWatch collection, optionally in one region.
+
+    Region scoping lets the distributed sync pipeline shard the expensive
+    ``list_metrics`` walk into one bounded task per region instead of a single
+    pass that can outlive a worker's time limit.  Semantics match
+    ``sync_aws_observability_assets``: a failed region/collection records a
+    bounded error and leaves previously synced rows untouched.
+    """
+    if asset_type not in AWS_OBSERVABILITY_ASSET_MODELS:
+        raise ValueError("Unsupported AWS observability collection")
+
+    if region is None:
+        try:
+            regions = _normalize_regions(get_enabled_regions(account))
+        except Exception as error:
+            return {
+                "regions": [],
+                "counts": {asset_type: 0},
+                "errors": [{"assetType": "region_discovery", "errorCode": _safe_error_code(error)}],
+            }
+    else:
+        if not isinstance(region, str) or not _REGION_NAME_RE.fullmatch(region):
+            raise ValueError("AWS observability sync requires a valid region name")
+        regions = [region]
+
+    collectors = {
+        ASSET_TYPE_CLOUDWATCH_ALARM: _collect_alarms,
+        ASSET_TYPE_CLOUDWATCH_METRIC: _collect_metrics,
+        ASSET_TYPE_LOG_GROUP: _collect_log_groups,
+    }
+    model = AWS_OBSERVABILITY_ASSET_MODELS[asset_type]
+    collector = collectors[asset_type]
+
+    counts = {asset_type: 0}
+    errors = []
+    for current_region in regions:
+        try:
+            client = _cloudwatch_client(account, current_region)
+            records = collector(client, current_region)
+            counts[asset_type] += _reconcile_collection(
+                model,
+                account,
+                current_region,
+                records,
+                asset_type,
+            )
+        except Exception as error:
+            # Do not reconcile after a failed or incomplete collection.
+            errors.append(_region_error(current_region, asset_type, error))
+            logger.warning(
+                "AWS observability collection failed for %s/%s: %s",
+                current_region,
+                asset_type,
+                _safe_error_code(error),
+            )
+
+    return {"regions": regions, "counts": counts, "errors": errors}
+
+
 def sync_aws_observability_assets(account):
     """Synchronize CloudWatch alarms, metrics, and log groups.
 
@@ -583,6 +646,7 @@ __all__ = [
     "CoreAWSCloudWatchLogGroup",
     "AWS_OBSERVABILITY_ASSET_MODELS",
     "sync_aws_observability_assets",
+    "sync_aws_observability_collection",
     "_alarm_record",
     "_metric_record",
     "_log_group_record",

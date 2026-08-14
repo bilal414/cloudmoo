@@ -69,7 +69,19 @@
                         <td class="px-3 py-3 whitespace-nowrap">
                             {{ cloud.name }}
                         </td>
-                        <td class="px-3 py-3 whitespace-nowrap">{{ cloud.last_synced|default_if_none:"Never"|naturaltime }}</td>
+                        <td class="px-3 py-3 whitespace-nowrap">
+                            {% if cloud.sync_in_progress %}
+                                <span class="inline-flex items-center text-indigo-600">
+                                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                    </svg>
+                                    Syncing…
+                                </span>
+                            {% else %}
+                                {{ cloud.last_synced|default_if_none:"Never"|naturaltime }}
+                            {% endif %}
+                        </td>
 
                         <td class="px-3 py-3 whitespace-nowrap">
                             <span class="px-2 inline-flex  leading-5  rounded-md {% if cloud.status == 'active' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">

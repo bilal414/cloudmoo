@@ -140,7 +140,10 @@ periodic task per monitored asset (`cloudmoo.check_asset_status`) and one per
 connected cloud (`cloudmoo.sync_cloud_assets`); a Celery worker executes them
 against the provider APIs, writes status logs to PostgreSQL, sends alert
 emails through Django's email backend, and prunes old logs daily per plan
-retention. The webhook `/api/v1/webhook/cloud/sync_assets/` (header
+retention. The per-cloud sync is a short orchestrator that fans the inventory
+out into one `cloudmoo.sync_cloud_asset_family` task per provider family
+(tracked by a `CloudSyncRun` row), so AWS-scale inventories cannot hit a task
+time limit. The webhook `/api/v1/webhook/cloud/sync_assets/` (header
 `X-API-KEY: <CLOUDMOO_API_KEY>`) still exists for triggering a cloud sync
 from external systems.
 

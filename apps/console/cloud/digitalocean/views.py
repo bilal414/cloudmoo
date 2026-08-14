@@ -2,6 +2,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from apps.monitoring.tasks import queue_cloud_sync
 from .models import CoreDigitalOceanAccount, CoreCloud
 from apps.console.account.models import CoreAccount
 from .forms import DigitalOceanConnectForm
@@ -31,8 +32,8 @@ class ConnectDigitalOceanView(LoginRequiredMixin, View):
                     spaces_secret_key=form.cleaned_data.get('spaces_secret_key', ''),
                     spaces_region=form.cleaned_data.get('spaces_region') or 'nyc3',
                 )
-                do_account.cloud.sync_assets()
-                messages.success(request, 'DigitalOcean account connected successfully!')
+                queue_cloud_sync(do_account.cloud)
+                messages.success(request, 'DigitalOcean account connected successfully! Asset sync is running in the background.')
                 return redirect('console:cloud:list')
             except Exception as e:
                 messages.error(request, f'Error connecting DigitalOcean account: {str(e)}')

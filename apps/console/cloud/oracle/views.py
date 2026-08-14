@@ -2,6 +2,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from apps.monitoring.tasks import queue_cloud_sync
 from .models import CoreOracleAccount, CoreCloud
 from .forms import OracleConnectForm
 from django.utils import timezone
@@ -29,8 +30,8 @@ class ConnectOracleView(LoginRequiredMixin, View):
                     region=form.cleaned_data['region'],
                     private_key=form.cleaned_data['private_key'],
                 )
-                oracle_account.cloud.sync_assets()
-                messages.success(request, 'Oracle Cloud account connected successfully!')
+                queue_cloud_sync(oracle_account.cloud)
+                messages.success(request, 'Oracle Cloud account connected successfully! Asset sync is running in the background.')
                 return redirect('console:cloud:list')
             except Exception as e:
                 messages.error(request, f'Error connecting Oracle Cloud account: {str(e)}')

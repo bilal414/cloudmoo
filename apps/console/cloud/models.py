@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
@@ -11,6 +12,8 @@ from apps.monitoring.models import (
     AssetMonitoringState,
     AssetStatusEmail,
     AssetStatusLog,
+    CLOUD_SYNC_RUN_TIMEOUT_SECONDS,
+    CloudSyncRun,
 )
 from apps.monitoring.schedules import (
     asset_schedule_delete,
@@ -326,6 +329,15 @@ class CoreCloud(TimeStampedModel):
         except AttributeError:
             return f"Unnamed {self.provider.name} Account"
 
+
+    @property
+    def sync_in_progress(self):
+        """Whether a distributed inventory sync is currently running."""
+        return CloudSyncRun.objects.filter(
+            cloud_uuid=self.uuid,
+            status__in=(CloudSyncRun.Status.RUNNING, CloudSyncRun.Status.FINALIZING),
+            started_at__gte=timezone.now() - timedelta(seconds=CLOUD_SYNC_RUN_TIMEOUT_SECONDS),
+        ).exists()
 
     def save(self, *args, **kwargs):
         is_new = self._state.adding

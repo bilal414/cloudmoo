@@ -82,6 +82,13 @@ The monitoring engine is built in — no external cloud services required:
   `apps/monitoring/models.py`), and send alert emails through Django's
   `EMAIL_BACKEND`; `cloudmoo.prune_status_logs` prunes old logs daily,
   honoring each plan's `log_retention_days`
+- **Distributed inventory sync**: `cloudmoo.sync_cloud_assets` is a short
+  orchestrator that validates credentials and fans the inventory out into one
+  `cloudmoo.sync_cloud_asset_family` task per provider family (AWS CloudWatch
+  metrics shard per region). A `CloudSyncRun` row tracks the fan-out and the
+  last family finalizes the run: stamps `last_synced`, recovers cloud status,
+  and reconciles every asset schedule. This keeps any single task well under
+  its time limit even for AWS-scale inventories.
 - **`apps/monitoring/`** package: `checks/` (per-provider status checks),
   `metadata.py`, `timeline.py`, `email.py`, `tasks.py`, `schedules.py`,
   `models.py`

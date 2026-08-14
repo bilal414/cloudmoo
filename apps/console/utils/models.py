@@ -38,6 +38,23 @@ class UtilCloud(TimeStampedModel):
     class Meta:
         abstract = True
 
+    def sync_asset_families(self):
+        """Inventory families for the distributed sync pipeline.
+
+        Returns an ordered list of ``(family_key, region)`` tuples.  The
+        default is a single monolithic family; providers whose full inventory
+        pass can exceed a task time limit (AWS) override this to fan out.
+        """
+        return [('all', None)]
+
+    def sync_asset_family(self, family_key, region=None):
+        """Synchronize exactly one inventory family of ``sync_asset_families``."""
+        if family_key != 'all':
+            raise ValueError(
+                f"Unknown sync family '{family_key}' for {type(self).__name__}"
+            )
+        return self.sync_assets()
+
 
 class AssetQuerySet(models.QuerySet):
     def for_user(self, user):

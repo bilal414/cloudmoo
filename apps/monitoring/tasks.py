@@ -11,9 +11,11 @@ Replaces the AWS-based engine (EventBridge Scheduler -> Lambda -> DynamoDB):
 - ``cloudmoo.prune_status_logs`` enforces per-account log retention.
 """
 import logging
+import random
 from datetime import timedelta
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
@@ -21,7 +23,11 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.console.account.models import CoreAccount
-from apps.console.cloud.models import CloudValidationTransientError, CoreCloud
+from apps.console.cloud.models import (
+    CloudInventoryTransientError,
+    CloudValidationTransientError,
+    CoreCloud,
+)
 from apps.console.utils.models import UtilAsset
 from apps.monitoring.checks import get_check_function
 from apps.monitoring.checks.base import NON_ALERTING_STATUSES
@@ -42,6 +48,8 @@ from apps.monitoring.models import (
     AssetMonitoringState,
     AssetStatusEmail,
     AssetStatusLog,
+    CLOUD_SYNC_RUN_TIMEOUT_SECONDS,
+    CloudSyncRun,
 )
 from apps.monitoring.timeline import calculate_status_timeline
 
@@ -384,6 +392,375 @@ def check_asset_status_now(asset):
     return run_status_check(asset)
 
 
+# ---------------------------------------------------------------------------
+# Distributed cloud inventory sync
+#
+# A full inventory pass (notably AWS, with 24+ families across all enabled
+# regions) can far exceed any single task's time limit.  The periodic
+# per-cloud task is therefore a short orchestrator that validates credentials
+# and fans the inventory out into one ``sync_cloud_asset_family`` task per
+# provider family.  A ``CloudSyncRun`` row is the cross-process lock and
+# completion tracker: the family task that completes the last family
+# finalizes the run (stamps ``last_synced``, recovers the cloud status, and
+# reconciles every asset schedule).  Every family task always records its
+# completion — even on failure — so the finalizer cannot be skipped the way
+# an end-of-pass step was when the monolithic task hit its hard time limit.
+# ---------------------------------------------------------------------------
+
+
+def get_active_sync_run(cloud_uuid):
+    """Return the cloud's in-flight sync run, expiring stale ones.
+
+    A run stuck in ``running`` past the timeout died with its worker and is
+    marked failed so the next orchestrator pass can proceed.  A run stuck in
+    ``finalizing`` is finalized inline: its inventory work already completed,
+    only the bookkeeping was interrupted.
+    """
+    cutoff = timezone.now() - timedelta(seconds=CLOUD_SYNC_RUN_TIMEOUT_SECONDS)
+    run = (
+        CloudSyncRun.objects
+        .filter(
+            cloud_uuid=cloud_uuid,
+            status__in=(CloudSyncRun.Status.RUNNING, CloudSyncRun.Status.FINALIZING),
+        )
+        .order_by('-started_at')
+        .first()
+    )
+    if run is None:
+        return None
+    if run.started_at >= cutoff:
+        return run
+    if run.status == CloudSyncRun.Status.FINALIZING:
+        logger.warning("Finalizing expired cloud sync run %s", run.uuid)
+        finalize_cloud_sync_run(str(run.uuid))
+        return None
+    logger.warning("Expiring stale cloud sync run %s", run.uuid)
+    CloudSyncRun.objects.filter(
+        pk=run.pk,
+        status__in=(CloudSyncRun.Status.RUNNING, CloudSyncRun.Status.FINALIZING),
+    ).update(
+        status=CloudSyncRun.Status.FAILED,
+        error='Sync run expired before completion',
+        finished_at=timezone.now(),
+    )
+    return None
+
+
+def _create_sync_run(cloud, families):
+    """Atomically claim the cloud's sync slot and record the fan-out plan.
+
+    Serializes competing orchestrators on the cloud row so at most one run
+    per cloud is active.  Returns None when a run is already in progress.
+    """
+    with transaction.atomic():
+        locked = CoreCloud.objects.select_for_update().get(pk=cloud.pk)
+        if get_active_sync_run(locked.uuid) is not None:
+            return None
+        return CloudSyncRun.objects.create(
+            cloud_uuid=locked.uuid,
+            cloud_id=locked.pk,
+            account_id=locked.account_id,
+            provider=locked.provider.code.lower(),
+            families_total=len(families),
+        )
+
+
+def _record_family_error(run_uuid, family_key, region, error):
+    """Append a bounded error entry for a failed family without aborting the run."""
+    with transaction.atomic():
+        run = CloudSyncRun.objects.select_for_update().filter(uuid=run_uuid).first()
+        if run is None or run.status != CloudSyncRun.Status.RUNNING:
+            return
+        errors = list(run.family_errors or [])
+        errors.append({
+            'family': family_key,
+            'region': region or '',
+            'error': str(error)[:500],
+        })
+        run.family_errors = errors[-50:]
+        run.save(update_fields=['family_errors'])
+
+
+def _complete_sync_family(run_uuid, family_key, region):
+    """Idempotently mark a family done; the last completion finalizes the run."""
+    marker = f'{family_key}|{region or ""}'
+    should_finalize = False
+    with transaction.atomic():
+        run = CloudSyncRun.objects.select_for_update().filter(uuid=run_uuid).first()
+        if run is None or run.status != CloudSyncRun.Status.RUNNING:
+            return
+        done = list(run.families_done or [])
+        if marker in done:
+            # Redelivery after a worker died between commit and ack.
+            return
+        done.append(marker)
+        run.families_done = done
+        update_fields = ['families_done']
+        if len(done) >= run.families_total:
+            run.status = CloudSyncRun.Status.FINALIZING
+            update_fields.append('status')
+            should_finalize = True
+        run.save(update_fields=update_fields)
+    if should_finalize:
+        finalize_cloud_sync_run(run_uuid)
+
+
+def finalize_cloud_sync_run(run_uuid):
+    """Stamp results and reconcile schedules once every family completed.
+
+    This is the step the monolithic sync task could never reach after a hard
+    time-limit kill: tombstoned assets lose their check schedules and new
+    assets gain theirs here, so reconciliation now runs on every completed
+    pass regardless of how long the provider calls took.
+    """
+    run = CloudSyncRun.objects.filter(uuid=run_uuid).first()
+    if run is None:
+        return
+
+    try:
+        cloud = CoreCloud.objects.select_related('provider').get(uuid=run.cloud_uuid)
+    except CoreCloud.DoesNotExist:
+        CloudSyncRun.objects.filter(pk=run.pk).update(
+            status=CloudSyncRun.Status.FAILED,
+            error='Cloud was removed while the sync was running',
+            finished_at=timezone.now(),
+        )
+        return
+
+    completed_at = timezone.now()
+    CoreCloud.objects.filter(pk=cloud.pk).update(last_synced=completed_at)
+    try:
+        provider_account = cloud.provider_account
+    except (AttributeError, NotImplementedError):
+        provider_account = None
+    if provider_account is not None:
+        type(provider_account).objects.filter(pk=provider_account.pk).update(
+            last_synced=completed_at
+        )
+
+    # A pause/suspension made while the families ran wins over this worker's
+    # in-memory snapshot; only INVALID_AUTH recovers to ACTIVE here.
+    with transaction.atomic():
+        current = CoreCloud.objects.select_for_update().get(pk=cloud.pk)
+        if current.status == CoreCloud.Status.INVALID_AUTH:
+            current.status = CoreCloud.Status.ACTIVE
+            current.save(update_fields=['status'])
+        final_status = current.status
+
+    error = ''
+    try:
+        if final_status == CoreCloud.Status.ACTIVE:
+            current.create_all_asset_schedules()
+        else:
+            current.delete_all_asset_schedules()
+    except Exception as e:
+        logger.exception("Could not reconcile asset schedules for cloud %s", cloud.pk)
+        error = f'Schedule reconciliation failed: {redact_error_message(e)}'
+
+    run.refresh_from_db(fields=['family_errors'])
+    has_errors = bool(run.family_errors) or bool(error)
+    CloudSyncRun.objects.filter(pk=run.pk).update(
+        status=(
+            CloudSyncRun.Status.PARTIAL if has_errors else CloudSyncRun.Status.SUCCESS
+        ),
+        error=error,
+        finished_at=timezone.now(),
+    )
+
+
+def _mark_cloud_invalid(cloud_pk, original_status):
+    """Shared INVALID_AUTH transition for both sync entry points."""
+    syncable_statuses = (
+        CoreCloud.Status.ACTIVE,
+        CoreCloud.Status.INVALID_AUTH,
+    )
+    with transaction.atomic():
+        current = CoreCloud.objects.select_for_update().get(pk=cloud_pk)
+        if (
+            current.status in syncable_statuses
+            and current.status != CoreCloud.Status.INVALID_AUTH
+        ):
+            current.status = CoreCloud.Status.INVALID_AUTH
+            current.save(update_fields=['status'])
+        final_status = current.status
+        last_synced = current.last_synced
+
+    # Also run this for an already-invalid cloud to repair any status-check
+    # schedules left behind by a prior interruption.
+    current.delete_all_asset_schedules()
+    return {
+        'success': True,
+        'message': f'Cloud credentials are invalid for {current.name}',
+        'status_changed': original_status != final_status,
+        'current_status': final_status,
+        'last_synced': last_synced,
+    }
+
+
+def start_distributed_cloud_sync(cloud):
+    """Validate the cloud and fan its inventory sync out into family tasks.
+
+    Mirrors the validate/status semantics of ``run_cloud_sync`` but returns
+    as soon as the sync run is queued; family tasks and the finalizer do the
+    provider work.  Returns the same result dict shape as ``run_cloud_sync``
+    plus ``queued``/``run_uuid`` keys.
+    """
+    cloud_pk = getattr(cloud, 'pk', None)
+    cloud_uuid = getattr(cloud, 'uuid', None)
+    syncable_statuses = (
+        CoreCloud.Status.ACTIVE,
+        CoreCloud.Status.INVALID_AUTH,
+    )
+    try:
+        cloud = CoreCloud.objects.select_related('provider').get(pk=cloud_pk)
+        original_status = cloud.status
+        if cloud.status not in syncable_statuses:
+            return {
+                'success': True,
+                'skipped': True,
+                'message': f'Cloud sync skipped while status is {cloud.status}',
+                'status_changed': False,
+                'current_status': cloud.status,
+                'last_synced': cloud.last_synced,
+            }
+
+        # Skip provider calls entirely while another run holds the slot; the
+        # atomic re-check in ``_create_sync_run`` closes the race.
+        if get_active_sync_run(cloud_uuid) is not None:
+            return {
+                'success': True,
+                'skipped': True,
+                'message': 'A cloud inventory sync is already in progress',
+                'status_changed': False,
+                'current_status': cloud.status,
+                'last_synced': cloud.last_synced,
+            }
+
+        # Provider calls intentionally run outside a database transaction.
+        is_valid = cloud.validate()
+
+        if not is_valid:
+            return _mark_cloud_invalid(cloud_pk, original_status)
+
+        # Re-check state immediately before the fan-out: a pause made during
+        # validation takes effect without waiting for the provider sync.
+        cloud.refresh_from_db(fields=['status', 'last_synced'])
+        if cloud.status not in syncable_statuses:
+            cloud.delete_all_asset_schedules()
+            return {
+                'success': True,
+                'skipped': True,
+                'message': f'Cloud sync skipped while status is {cloud.status}',
+                'status_changed': original_status != cloud.status,
+                'current_status': cloud.status,
+                'last_synced': cloud.last_synced,
+            }
+
+        families = cloud.provider_account.sync_asset_families()
+        run = _create_sync_run(cloud, families)
+        if run is None:
+            current = CoreCloud.objects.only('status', 'last_synced').get(pk=cloud_pk)
+            return {
+                'success': True,
+                'skipped': True,
+                'message': 'A cloud inventory sync is already in progress',
+                'status_changed': False,
+                'current_status': current.status,
+                'last_synced': current.last_synced,
+            }
+
+        for family_key, region in families:
+            sync_cloud_asset_family.delay(str(cloud_uuid), str(run.uuid), family_key, region)
+
+        return {
+            'success': True,
+            'queued': True,
+            'run_uuid': str(run.uuid),
+            'message': f'Successfully started cloud sync for {cloud.name}',
+            'status_changed': False,
+            'current_status': cloud.status,
+            'last_synced': cloud.last_synced,
+        }
+
+    except NotImplementedError:
+        return {
+            'success': False,
+            'not_implemented': True,
+            'message': f'Asset synchronization not implemented for {cloud.provider.name}',
+            'status_changed': False,
+            'current_status': cloud.status,
+            'last_synced': cloud.last_synced,
+        }
+
+    except CloudValidationTransientError as e:
+        # A timeout, rate limit, or provider outage is not an authentication
+        # failure. Keep schedules and the current cloud state intact so the
+        # retry can resume monitoring when the provider recovers.
+        logger.warning(
+            "Transient validation failure for cloud %s: %s",
+            cloud_pk,
+            redact_error_message(e),
+        )
+        return {
+            'success': False,
+            'retryable': True,
+            'message': redact_error_message(e),
+            'status_changed': False,
+            'current_status': cloud.status,
+            'last_synced': cloud.last_synced,
+        }
+
+    except CoreCloud.DoesNotExist:
+        logger.info("Cloud %s was removed while its inventory sync was starting", cloud_pk)
+        return {
+            'success': True,
+            'skipped': True,
+            'message': 'Cloud was removed before synchronization started',
+            'status_changed': False,
+            'current_status': None,
+            'last_synced': None,
+        }
+
+    except Exception as e:
+        logger.exception(
+            "Error starting sync for cloud %s (%s)",
+            cloud_pk,
+            type(e).__name__,
+        )
+        return {
+            'success': False,
+            'message': f'Error processing cloud: {redact_error_message(e)}',
+            'status_changed': False,
+            'current_status': cloud.status,
+            'last_synced': cloud.last_synced,
+        }
+
+
+def queue_cloud_sync(cloud):
+    """Start a cloud inventory sync, distributed when a broker is available.
+
+    Without a reachable broker (development, tests) the sync runs inline so
+    those environments keep working without RabbitMQ.
+    """
+    try:
+        sync_cloud_assets.delay(str(cloud.uuid))
+        return {
+            'success': True,
+            'queued': True,
+            'message': f'Started cloud sync for {cloud.name}',
+            'status_changed': False,
+            'current_status': cloud.status,
+            'last_synced': cloud.last_synced,
+        }
+    except Exception as e:
+        logger.warning(
+            "Could not queue sync for cloud %s (%s); running inline",
+            cloud.pk,
+            e,
+        )
+        return run_cloud_sync(cloud)
+
+
 def run_cloud_sync(cloud):
     """
     Validate cloud credentials and sync its assets. Port of the
@@ -426,33 +803,25 @@ def run_cloud_sync(cloud):
                     'last_synced': cloud.last_synced,
                 }
 
+            # A distributed sync run holds no advisory lock; its run row is
+            # the mutual-exclusion record this inline path must respect.
+            if get_active_sync_run(cloud_uuid) is not None:
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'message': 'A cloud inventory sync is already in progress',
+                    'status_changed': False,
+                    'current_status': cloud.status,
+                    'last_synced': cloud.last_synced,
+                }
+
             # Provider calls intentionally run outside a database transaction.
             # Some full inventory passes take many minutes and must not hold a
             # row lock or an open transaction for their entire duration.
             is_valid = cloud.validate()
 
             if not is_valid:
-                with transaction.atomic():
-                    current = CoreCloud.objects.select_for_update().get(pk=cloud_pk)
-                    if (
-                        current.status in syncable_statuses
-                        and current.status != CoreCloud.Status.INVALID_AUTH
-                    ):
-                        current.status = CoreCloud.Status.INVALID_AUTH
-                        current.save(update_fields=['status'])
-                    final_status = current.status
-                    last_synced = current.last_synced
-
-                # Also run this for an already-invalid cloud to repair any
-                # status-check schedules left behind by a prior interruption.
-                current.delete_all_asset_schedules()
-                return {
-                    'success': True,
-                    'message': f'Cloud credentials are invalid for {current.name}',
-                    'status_changed': original_status != final_status,
-                    'current_status': final_status,
-                    'last_synced': last_synced,
-                }
+                return _mark_cloud_invalid(cloud_pk, original_status)
 
             # Re-check state immediately before the expensive inventory pass.
             # A pause made during validation should take effect without waiting
@@ -584,21 +953,98 @@ def check_asset_status(content_type_id, object_id):
     retry_kwargs={'max_retries': 5},
     acks_late=True,
     reject_on_worker_lost=True,
-    soft_time_limit=900,
-    time_limit=1200,
+    soft_time_limit=180,
+    time_limit=300,
 )
 def sync_cloud_assets(cloud_uuid):
-    """Periodic per-cloud asset sync."""
+    """Periodic per-cloud sync orchestrator: validate, then fan out per family.
+
+    The orchestrator itself is deliberately short — the provider inventory
+    work happens in ``sync_cloud_asset_family`` tasks so no single task can
+    outlive its time limit at AWS-scale inventories.
+    """
     try:
         cloud = CoreCloud.objects.get(uuid=cloud_uuid)
     except CoreCloud.DoesNotExist:
         logger.info(f"Cloud {cloud_uuid} no longer exists, skipping asset sync")
         return
 
-    result = run_cloud_sync(cloud)
+    result = start_distributed_cloud_sync(cloud)
     if not result.get('success') and not result.get('not_implemented'):
         raise CloudSyncFailed(result.get('message', f'Cloud sync failed for {cloud_uuid}'))
     return result
+
+
+@shared_task(
+    name='cloudmoo.sync_cloud_asset_family',
+    ignore_result=True,
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=600,
+    time_limit=900,
+    max_retries=2,
+)
+def sync_cloud_asset_family(self, cloud_uuid, run_uuid, family_key, region=None):
+    """Run one task-sized inventory family of a distributed cloud sync.
+
+    Never propagates provider failures past its bounded retries: the error is
+    recorded on the run and the family marker is always completed, so the
+    finalizer (status recovery + schedule reconciliation) always executes.
+    """
+    run = CloudSyncRun.objects.filter(uuid=run_uuid).first()
+    if (
+        run is None
+        or str(run.cloud_uuid) != str(cloud_uuid)
+        or run.status != CloudSyncRun.Status.RUNNING
+    ):
+        logger.info(
+            "Sync run %s is no longer active, skipping family %s",
+            run_uuid,
+            family_key,
+        )
+        return
+
+    try:
+        cloud = CoreCloud.objects.get(uuid=cloud_uuid)
+    except CoreCloud.DoesNotExist:
+        logger.info(
+            "Cloud %s was removed while family %s was queued",
+            cloud_uuid,
+            family_key,
+        )
+        _complete_sync_family(run_uuid, family_key, region)
+        return
+
+    try:
+        cloud.provider_account.sync_asset_family(family_key, region)
+    except SoftTimeLimitExceeded:
+        logger.warning(
+            "Family %s of sync run %s exceeded its time limit",
+            family_key,
+            run_uuid,
+        )
+        _record_family_error(run_uuid, family_key, region, 'Family sync exceeded its time limit')
+    except (CloudValidationTransientError, CloudInventoryTransientError) as e:
+        if self.request.retries < 2:
+            countdown = 60 * (2 ** self.request.retries) + random.uniform(0, 30)
+            raise self.retry(exc=e, countdown=countdown)
+        logger.warning(
+            "Family %s of sync run %s failed after retries: %s",
+            family_key,
+            run_uuid,
+            redact_error_message(e),
+        )
+        _record_family_error(run_uuid, family_key, region, redact_error_message(e))
+    except Exception as e:
+        logger.exception(
+            "Error syncing family %s of run %s",
+            family_key,
+            run_uuid,
+        )
+        _record_family_error(run_uuid, family_key, region, redact_error_message(e))
+
+    _complete_sync_family(run_uuid, family_key, region)
 
 
 @shared_task(
