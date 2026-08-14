@@ -339,6 +339,10 @@ class CoreCloud(TimeStampedModel):
             started_at__gte=timezone.now() - timedelta(seconds=CLOUD_SYNC_RUN_TIMEOUT_SECONDS),
         ).exists()
 
+    def sync_runs(self, limit=5):
+        """Most recent distributed sync runs for this cloud (newest first)."""
+        return CloudSyncRun.objects.filter(cloud_uuid=self.uuid).order_by('-started_at')[:limit]
+
     def save(self, *args, **kwargs):
         is_new = self._state.adding
         status_changed = False

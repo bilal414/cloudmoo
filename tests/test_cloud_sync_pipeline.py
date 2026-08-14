@@ -450,6 +450,49 @@ class ActiveRunTrackingTestCase(SyncPipelineFixtureTestCase):
         mock_validate.assert_not_called()
 
 
+class CheckFreshnessGuardTestCase(SyncPipelineFixtureTestCase):
+    """Duplicate/backlog deliveries of a periodic check must be cheap no-ops."""
+
+    def _run_check(self):
+        from django.contrib.contenttypes.models import ContentType
+        from apps.monitoring.tasks import check_asset_status
+
+        return check_asset_status(
+            ContentType.objects.get_for_model(self.server).id,
+            self.server.pk,
+        )
+
+    def test_fresh_heartbeat_skips_duplicate_delivery(self):
+        from apps.monitoring.models import AssetMonitoringState
+
+        AssetMonitoringState.objects.create(
+            asset_key=self.server.key, account_id=self.account.id,
+            provider='digitalocean', asset_type='server',
+            last_checked_at=timezone.now(),
+        )
+        with patch('apps.monitoring.tasks.run_status_check') as mock_check:
+            self._run_check()
+        mock_check.assert_not_called()
+
+    def test_stale_heartbeat_runs(self):
+        from apps.monitoring.models import AssetMonitoringState
+
+        interval = max(1, self.account.monitoring_interval)
+        AssetMonitoringState.objects.create(
+            asset_key=self.server.key, account_id=self.account.id,
+            provider='digitalocean', asset_type='server',
+            last_checked_at=timezone.now() - timedelta(minutes=interval),
+        )
+        with patch('apps.monitoring.tasks.run_status_check') as mock_check:
+            self._run_check()
+        mock_check.assert_called_once()
+
+    def test_missing_state_runs(self):
+        with patch('apps.monitoring.tasks.run_status_check') as mock_check:
+            self._run_check()
+        mock_check.assert_called_once()
+
+
 class QueueCloudSyncTestCase(SyncPipelineFixtureTestCase):
     def test_enqueues_distributed_sync(self):
         with patch('apps.monitoring.tasks.sync_cloud_assets.delay') as mock_delay:

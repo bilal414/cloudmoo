@@ -941,6 +941,23 @@ def check_asset_status(content_type_id, object_id):
     if asset.owner.cloud.status != CoreCloud.Status.ACTIVE:
         return
 
+    # Beat enqueues one message per interval with no dedup, and a drained
+    # backlog can hold many copies of the same check.  A heartbeat fresher
+    # than half the interval means this delivery is a duplicate — skip the
+    # provider call instead of hammering the provider API.  The half-interval
+    # slack keeps normally scheduled deliveries (which land just under one
+    # full interval after the previous check) running.
+    interval_minutes = max(1, asset.owner.cloud.account.monitoring_interval)
+    fresh_after = timezone.now() - timedelta(minutes=interval_minutes / 2)
+    last_checked_at = (
+        AssetMonitoringState.objects
+        .filter(asset_key=asset.key)
+        .values_list('last_checked_at', flat=True)
+        .first()
+    )
+    if last_checked_at is not None and last_checked_at >= fresh_after:
+        return
+
     run_status_check(asset)
 
 

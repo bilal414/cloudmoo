@@ -119,7 +119,7 @@ services:
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-cloudmoo}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
       - SKIP_MIGRATIONS=true
-    command: celery -A app_cloudmoo_com worker --loglevel=info --concurrency=4
+    command: celery -A app_cloudmoo_com worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-8}
     depends_on:
       db:
         condition: service_healthy

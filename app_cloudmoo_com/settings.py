@@ -237,6 +237,10 @@ REST_FRAMEWORK = {
         else ("rest_framework.renderers.JSONRenderer",)
     ),
     "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
+    "DEFAULT_THROTTLE_RATES": {
+        # Mobile login mirrors the console login rate limit (10 per 15 min).
+        "mobile_login": "10/15min",
+    },
 }
 
 # Database
@@ -473,3 +477,5 @@ RECAPTCHA_PRIVATE_KEY = config.get("RECAPTCHA_PRIVATE_KEY", "")
 
 # CloudMoo
 COMPANY_NAME = "CloudMoo"
+# Surfaced by the mobile API as the installation version.
+CLOUDMOO_VERSION = config.get("CLOUDMOO_VERSION", "1.0.0")
