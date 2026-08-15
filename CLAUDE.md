@@ -108,6 +108,17 @@ Connecting an AWS account as a monitored provider uses that account's own
 credentials (`apps/console/cloud/aws/`); no platform-level AWS credentials or
 services are needed to run CloudMoo.
 
+### Mobile API
+`apps/api/v1/mobile/` exposes the account-scoped REST API for the iOS and
+Android apps (`/api/v1/mobile/`, DRF token auth from `auth/login/` with the
+console email/password). Endpoints: overview, clouds (list/detail/rename/
+pause/resume/sync), assets (list/detail/check/pause/resume/notification
+emails), activity, notifications, account. `apps/monitoring/health.py` holds
+the normalized health buckets and uptime math; `apps/console/asset/registry.py`
+is the shared provider/type → model map (console detail view and API must use
+it, never a private copy). The full contract for app developers lives in
+`docs/api-mobile.md`.
+
 ## Key Configuration
 
 ### Settings Structure
