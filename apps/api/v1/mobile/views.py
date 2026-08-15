@@ -357,7 +357,7 @@ class OverviewView(APIView):
             'incidents_last_24h': incidents,
             'uptime_percentage': uptime_percentage,
             'last_sync': last_sync,
-            'providers': [_serialize_cloud(cloud) for cloud in clouds],
+            'providers': [_serialize_cloud(cloud, with_counts=True) for cloud in clouds],
         })
 
 

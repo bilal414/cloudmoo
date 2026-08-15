@@ -290,6 +290,7 @@ class MobileOverviewTestCase(MobileAPIFixtureTestCase):
         self.assertEqual(body['incidents_last_24h'], 1)
         self.assertEqual(body['uptime_percentage'], 100.0)
         self.assertEqual(body['providers'][0]['provider'], 'digitalocean')
+        self.assertEqual(body['providers'][0]['asset_counts']['monitored'], 1)
 
     def test_overview_excludes_other_accounts(self):
         self.authenticate()
